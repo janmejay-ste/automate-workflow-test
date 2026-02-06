@@ -1,155 +1,180 @@
 package testing;
 
-import java.util.logging.Level;
-
+import base.BaseTest;
 import org.openqa.selenium.By;
-import org.openqa.selenium.logging.LogEntries;
-import org.openqa.selenium.logging.LogEntry;
-import org.openqa.selenium.logging.LogType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testng.Assert;
 import org.testng.annotations.AfterSuite;
 import org.testng.annotations.Test;
-
-import base.BaseTest;
 import pages.AppyPieAutomatePage;
-import pages.AppyPieHomePage;
 import pages.ConnectTopNavigation;
 import utils.ConsoleLogFilter;
-import utils.HealthTracker;
+import utils.health.HealthTracker;
 import utils.TrendExporter;
+
+
+import java.util.List;
 
 public class AppyPieNavigationTest extends BaseTest {
 
-    private static final Logger LOG = LoggerFactory.getLogger(AppyPieNavigationTest.class);
+    private static final Logger LOG =
+            LoggerFactory.getLogger(AppyPieNavigationTest.class);
 
-	private void captureBrowserLogs(String context) {
-		try {
-			LogEntries logs = driver.manage().logs().get(LogType.BROWSER);
-			for (LogEntry entry : logs) {
-				String msg = entry.getMessage();
-				String lower = msg == null ? "" : msg.toLowerCase();
+    private static final long MAX_LCP_MS = 2500;
+    private static final double MAX_CLS = 0.1;
+    private static final long MAX_NAV_TIME_MS = 5000;
 
-				// 1) Auth iframe / frame-ancestors / FedCM / accounts.google.com / clarity.ms → IGNORE
-				if (lower.contains("frame-ancestors") || lower.contains("accounts.google.com") || lower.contains("clarity.ms") || lower.contains("fedcm")) {
-					// Ignore auth/identity provider related messages entirely (do not record or penalize)
-					continue;
-				}
+    // --------------------------------------------------
+    // Smoke: page load + domain + JS health
+    // --------------------------------------------------
 
-				// 2) Path contains /blog/ -> ignore
-				if (ConsoleLogFilter.isBlogPathLog(msg)) {
-					continue;
-				}
+    @Test(groups = "navigation", priority = 1)
+    public void verifyAutomateHomeLoads() {
+        AppyPieAutomatePage automate = new AppyPieAutomatePage(driver);
 
-				// 3) Analytics/tracking duplication → LOW warning
-				if (ConsoleLogFilter.isAnalyticsLog(msg)) {
-					HealthTracker.get().addWarning("Analytics", "Tracking: " + msg);
-					continue;
-				}
+        Assert.assertTrue(
+                automate.isPageLoadedCleanly(),
+                "Automate page did not load cleanly"
+        );
 
-				// 4) CDN/plugin → LOW unless blocks UI
-				if (ConsoleLogFilter.isCdnPluginLog(msg)) {
-					if (ConsoleLogFilter.isBlockingForUI(msg)) {
-						// Treat as JS error / HIGH severity because it blocks UI
-						HealthTracker.get().recordJsError(context, msg);
-					} else {
-						// Downgrade to LOW warning
-						HealthTracker.get().addWarning("CDN/Plugin", "Resource issue: " + msg);
-					}
-					continue;
-				}
+        Assert.assertTrue(
+                automate.isOnAutomateDomain(),
+                "Unexpected domain: " + driver.getCurrentUrl()
+        );
 
-				// Default: existing behavior
-				if (ConsoleLogFilter.isThirdPartyAuthLog(msg)) {
-					HealthTracker.get().recordThirdPartyAuth(context, msg);
-					continue;
-				}
-				if (ConsoleLogFilter.isIgnoredLog(msg)) continue; // ignore other known benign/organizational messages
-				if (entry.getLevel().intValue() >= Level.SEVERE.intValue()) {
-					HealthTracker.get().recordJsError(context, msg);
-				}
-			}
-		} catch (Exception e) {
-			HealthTracker.get().addWarning("JS Logs", "Unable to capture logs on " + context);
-		}
-	}
+       List<String> jsErrors = automate.getSevereJsErrors()
+    .stream()
+    .filter(e -> !e.contains("appendChild"))
+    .toList();
 
-	@Test(groups = "navigation", priority = 1)
-	public void openHomePage() {
-		driver.get("https://www.appypie.com");
+Assert.assertTrue(jsErrors.isEmpty(), "Unexpected JS errors: " + jsErrors);
 
-		String title = driver.getTitle().toLowerCase();
-		// Be tolerant to small copy changes in page title; assert presence of product/site keywords
-		if (!(title.contains("appy pie") || title.contains("app builder") || title.contains("appypie"))) {
-			HealthTracker.get().addWarning("HomePage", "Title unexpected: '" + driver.getTitle() + "'");
-		}
-		captureBrowserLogs("HomePage");
-	}
 
-	@Test(groups = "navigation", priority = 2)
-	public void validateAutomateUX() {
-		try {
-			AppyPieHomePage home = new AppyPieHomePage(driver);
-			home.navigateToAutomate();
-			captureBrowserLogs("NavigateToAutomate");
+        captureBrowserLogs("AutomateHome");
+    }
 
-			AppyPieAutomatePage automate = new AppyPieAutomatePage(driver);
-			automate.isFullyLoaded();
-			captureBrowserLogs("AutomatePageLoaded");
+    // --------------------------------------------------
+    // UX + performance validation
+    // --------------------------------------------------
 
-			long lcp = automate.getLCP();
-			double cls = automate.getCLS();
-			LOG.info("LCP: {}ms | CLS: {}", lcp, cls);
+    @Test(groups = "navigation", priority = 2)
+    public void validateAutomateUXAndPerformance() {
+        AppyPieAutomatePage automate = new AppyPieAutomatePage(driver);
 
-			if (lcp == -1) {
-				HealthTracker.get().addWarning("Performance", "LCP unavailable");
-			} else if (lcp > 3000) {
-				HealthTracker.get().addWarning("Performance", "Slow LCP: " + lcp + " ms");
-			}
+        automate.waitUntilLoaded();
 
-			By section = By.xpath("//h2[contains(text(),'Popular Automations')]");
-			try {
-				automate.scrollToElement(section);
-				captureBrowserLogs("ScrollCheck");
-			} catch (Exception ignore) {
-				HealthTracker.get().addWarning("UX", "Popular Automations missing/unreachable");
-			}
+        long navTime = automate.getNavigationDurationMs();
+        long lcp = automate.getLCP();
+        double cls = automate.getCLS();
 
-			ConsoleLogFilter.ignoreKnownErrors(driver);
+        LOG.info("Navigation={} ms | LCP={} ms | CLS={}", navTime, lcp, cls);
 
-		} catch (Exception ex) {
-			HealthTracker.get().addWarning("AutomateUX", "Failure: " + ex.getMessage());
-		}
-	}
+        if (navTime > MAX_NAV_TIME_MS) {
+            HealthTracker.get()
+                    .addWarning("Performance", "Slow navigation: " + navTime);
+        }
 
-	@Test(groups = "navigation", priority = 3)
-	public void connectTopNavigationTest() {
-		ConnectTopNavigation nav = new ConnectTopNavigation(driver);
+        if (lcp <= 0 || lcp > MAX_LCP_MS) {
+            HealthTracker.get()
+                    .addWarning("Performance", "LCP out of budget: " + lcp);
+        }
 
-		navigateAndLog("Features", nav.goToFeatures());
-		navigateAndLog("App Directory", nav.goToAppDirectory());
-		navigateAndLog("AI Automation", nav.goToAIAutomation());
-		navigateAndLog("AI Connects", nav.goToAIConnects());
-		navigateAndLog("MCP Server", nav.goToMCPServer());
-		navigateAndLog("Pricing", nav.goToPricing());
-		navigateAndLog("Blog", nav.goToBlog());
-		navigateAndLog("Contact Sales", nav.goToContactSales());
-		navigateAndLog("Signup", nav.goToSignup());
-		navigateAndLog("Login", nav.goToLogin());
-	}
+        if (cls > MAX_CLS) {
+            HealthTracker.get()
+                    .addWarning("Performance", "High CLS: " + cls);
+        }
 
-	private void navigateAndLog(String label, long time) {
-		LOG.info("{} load time: {} ms", label, time);
-		captureBrowserLogs(label);
-	}
+        By popularAutomations =
+                By.xpath("//h2[contains(normalize-space(),'Popular Automations')]");
 
-	@AfterSuite
-	public void afterSuiteHealthReport() {
-		HealthTracker tracker = HealthTracker.get();
-		tracker.printReport();
+        try {
+            automate.scrollToElement(popularAutomations);
+        } catch (Exception e) {
+            HealthTracker.get()
+                    .addWarning("UX", "Popular Automations section missing");
+        }
 
-		// Launch dashboard (overwrite mode)
-		TrendExporter.updateTrend(tracker.getScore());
-	}
+        captureBrowserLogs("AutomateUX");
+        ConsoleLogFilter.ignoreKnownErrors(driver);
+    }
 
+    // --------------------------------------------------
+    // Navigation integrity (top menu)
+    // --------------------------------------------------
+
+    @Test(groups = "navigation", priority = 3)
+    public void validateTopNavigationLinks() {
+        AppyPieAutomatePage automate = new AppyPieAutomatePage(driver);
+
+        Assert.assertTrue(
+                automate.doAllTopNavLinksWork(),
+                "One or more top navigation links are broken"
+        );
+
+        captureBrowserLogs("TopNavigation");
+    }
+
+    // --------------------------------------------------
+    // Cross-page navigation (Connect menu)
+    // --------------------------------------------------
+
+    @Test(groups = "navigation", priority = 4)
+    public void validateConnectNavigation() {
+        ConnectTopNavigation nav = new ConnectTopNavigation(driver);
+
+        nav.openFeatures();
+        captureBrowserLogs("Features");
+
+        nav.openAppDirectory();
+        captureBrowserLogs("AppDirectory");
+
+        nav.openAIAutomation();
+        captureBrowserLogs("AIAutomation");
+
+        nav.openAIConnects();
+        captureBrowserLogs("AIAgents");
+
+        nav.openMCPServer();
+        captureBrowserLogs("MCPServer");
+
+        nav.openPricing();
+        captureBrowserLogs("Pricing");
+
+        nav.openBlog();
+        captureBrowserLogs("Blog");
+
+        nav.openContactSales();
+        captureBrowserLogs("ContactSales");
+
+        nav.openSignup();
+        captureBrowserLogs("Signup");
+
+        nav.openLogin();
+        captureBrowserLogs("Login");
+    }
+
+    // --------------------------------------------------
+    // Reporting
+    // --------------------------------------------------
+
+    @AfterSuite(alwaysRun = true)
+    public void exportHealthReport() {
+        HealthTracker tracker = HealthTracker.get();
+        tracker.printReport();
+        TrendExporter.updateTrend(tracker.getScore());
+    }
+
+    // --------------------------------------------------
+    // Utilities
+    // --------------------------------------------------
+
+    private void captureBrowserLogs(String context) {
+        try {
+            ConsoleLogFilter.capture(driver, context);
+        } catch (Exception e) {
+            HealthTracker.get()
+                    .addWarning("JS Logs", "Failed to capture logs on " + context);
+        }
+    }
 }

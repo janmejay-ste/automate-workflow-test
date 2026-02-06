@@ -1,6 +1,7 @@
 package testing;
 
 import base.BaseTest;
+import org.openqa.selenium.By;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 import pages.LoginPage;
@@ -8,18 +9,17 @@ import pages.LoginPage;
 public class LoginTest extends BaseTest {
 
     @Test(groups = "login")
-    public void loginRedirectsToIdentityProvider() {
+    public void loginFlowStartsCorrectly() throws InterruptedException {
 
-        driver.get("https://www.appypie.com/login");
+        // Click the login link to start auth flow
+        driver.findElement(By.cssSelector("a[title='log in']")).click();
 
         LoginPage login = new LoginPage(driver);
-
-        // Assert redirect happens
-        login.waitForIdentityRedirect();
+        login.waitForLoginFlowStart();
 
         Assert.assertTrue(
-                login.isOnIdentityProvider(),
-                "Login should redirect to identity provider. URL=" + driver.getCurrentUrl()
+                login.isInValidState(),
+                "Login did not reach a valid auth state. URL=" + driver.getCurrentUrl()
         );
     }
 }

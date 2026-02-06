@@ -3,86 +3,87 @@ package utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.util.Map;
 import java.awt.Desktop;
 import java.awt.GraphicsEnvironment;
+import java.io.File;
+import java.util.Map;
 
-public class DashboardLauncher {
+public final class DashboardLauncher {
+
     private static final Logger LOG = LoggerFactory.getLogger(DashboardLauncher.class);
-    private static final String DASHBOARD = "reports/trend/dashboard.html";
+    private static final File DASHBOARD = new File("reports/trend/dashboard.html");
 
-    @SuppressWarnings("deprecation")
-	public static void launchIfEnabled() {
-        try {
-            boolean explicit = Boolean.getBoolean("trend.open");
-            boolean ci = isCiEnvironment();
+    private DashboardLauncher() {
+    }
 
-            boolean desktopAvailable = false;
-            try {
-                desktopAvailable = Desktop.isDesktopSupported() && !GraphicsEnvironment.isHeadless();
-            } catch (Throwable t) {
-                desktopAvailable = false;
-            }
-
-            boolean shouldOpen = explicit || (desktopAvailable && !ci);
-
-            if (!shouldOpen) {
-                LOG.debug("Dashboard opening skipped (explicit={}, desktopAvailable={}, ci={})", explicit, desktopAvailable, ci);
-                return;
-            }
-
-            File f = new File(DASHBOARD);
-            if (!f.exists()) {
-                LOG.warn("Dashboard file not found, will not attempt to open: {}", f.getAbsolutePath());
-                return;
-            }
-
-            if (desktopAvailable) {
-                try {
-                    LOG.info("Opening dashboard using Desktop.browse(): {}", f.getAbsolutePath());
-                    Desktop.getDesktop().browse(f.toURI());
-                    LOG.info("Dashboard launched: {}", f.getAbsolutePath());
-                    return;
-                } catch (Throwable t) {
-                    LOG.debug("Desktop.browse() failed: {}", t.getMessage());
-                    // fallback to Runtime.exec below
-                }
-            }
-
-            String cmd;
-            String os = System.getProperty("os.name").toLowerCase();
-            if (os.contains("mac")) {
-                cmd = "open " + quotePath(f.getAbsolutePath());
-            } else if (os.contains("win")) {
-                cmd = "cmd /c start " + quotePath(f.getAbsolutePath());
-            } else {
-                cmd = "xdg-open " + quotePath(f.getAbsolutePath());
-            }
-            LOG.info("Launching dashboard using command: {}", cmd);
-            Runtime.getRuntime().exec(cmd);
-            LOG.info("Dashboard launched: {}", f.getAbsolutePath());
-        } catch (Exception ex) {
-            LOG.debug("Failed launching dashboard: {}", ex.getMessage());
+    public static void launchIfEnabled() {
+        if (!shouldLaunch()) {
+            LOG.debug("Dashboard launch skipped");
+            return;
         }
+
+        if (!DASHBOARD.exists()) {
+            LOG.warn("Dashboard file not found: {}", DASHBOARD.getAbsolutePath());
+            return;
+        }
+
+        tryLaunch(DASHBOARD);
+    }
+
+    private static boolean shouldLaunch() {
+        boolean explicit = Boolean.getBoolean("trend.open");
+        boolean ci = isCiEnvironment();
+        boolean desktop = isDesktopAvailable();
+        return explicit || (desktop && !ci);
+    }
+
+    private static boolean isDesktopAvailable() {
+        try {
+            return Desktop.isDesktopSupported() && !GraphicsEnvironment.isHeadless();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static void tryLaunch(File f) {
+        try {
+            if (isDesktopAvailable()) {
+                Desktop.getDesktop().browse(f.toURI());
+                LOG.info("Dashboard opened: {}", f.getAbsolutePath());
+                return;
+            }
+            launchByOs(f);
+        } catch (Exception ex) {
+            LOG.warn("Failed to launch dashboard: {}", ex.getMessage());
+        }
+    }
+
+    private static void launchByOs(File f) throws Exception {
+        String os = System.getProperty("os.name").toLowerCase();
+        String[] command;
+        if (os.contains("mac")) {
+            command = new String[] { "open", f.getAbsolutePath() };
+        } else if (os.contains("win")) {
+            command = new String[] { "cmd", "/c", "start", f.getAbsolutePath() };
+        } else {
+            command = new String[] { "xdg-open", f.getAbsolutePath() };
+        }
+
+        new ProcessBuilder(command).start();
+        LOG.info("Dashboard launched via command: {}", String.join(" ", command));
     }
 
     private static boolean isCiEnvironment() {
         try {
             Map<String, String> env = System.getenv();
-            // Common CI env vars: CI (general), GITHUB_ACTIONS, TRAVIS, JENKINS_URL, GITLAB_CI
-            if (env.containsKey("CI")) return true;
-            if (env.containsKey("GITHUB_ACTIONS")) return true;
-            if (env.containsKey("TRAVIS")) return true;
-            if (env.containsKey("JENKINS_URL")) return true;
-            if (env.containsKey("GITLAB_CI")) return true;
-        } catch (Exception ignored) {}
-        return false;
+            return env.containsKey("CI")
+                    || env.containsKey("GITHUB_ACTIONS")
+                    || env.containsKey("TRAVIS")
+                    || env.containsKey("JENKINS_URL")
+                    || env.containsKey("GITLAB_CI");
+        } catch (Exception e) {
+            return false;
+        }
     }
 
-    private static String quotePath(String p) {
-        if (p == null) return "";
-        if (p.contains(" ")) return '"' + p + '"';
-        return p;
-    }
 }

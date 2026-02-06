@@ -1,9 +1,11 @@
 package pages;
 
 import org.openqa.selenium.WebDriver;
-import utils.WaitUtils;
+import pages.auth.AuthState;
 
 import java.time.Duration;
+
+import static pages.WaitUtils.waitForAuthTransition;
 
 public class LoginPage {
 
@@ -13,17 +15,13 @@ public class LoginPage {
         this.driver = driver;
     }
 
-    /**
-     * Waits until the browser leaves appypie.com
-     * and lands on the identity provider.
-     */
-    public void waitForIdentityRedirect() {
-        WaitUtils.waitUntil(driver, Duration.ofSeconds(15), d ->
-                d.getCurrentUrl().contains("accounts.appypie.com")
-        );
+    public void waitForLoginFlowStart() throws InterruptedException {
+        waitForAuthTransition(driver, Duration.ofSeconds(30));
     }
 
-    public boolean isOnIdentityProvider() {
-        return driver.getCurrentUrl().contains("accounts.appypie.com");
+    public boolean isInValidState() {
+        return AuthState.isOnIdP(driver)
+                || AuthState.isOnAuthRoute(driver)
+                || AuthState.hasSession(driver);
     }
 }

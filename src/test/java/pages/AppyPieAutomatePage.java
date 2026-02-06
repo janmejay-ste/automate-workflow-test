@@ -1,88 +1,192 @@
 package pages;
 
-import org.openqa.selenium.By;
-import org.openqa.selenium.JavascriptExecutor;
-import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.WebElement;
-import utils.WaitUtils;
+import org.openqa.selenium.*;
+import org.openqa.selenium.logging.LogEntries;
+import org.openqa.selenium.logging.LogEntry;
+import org.openqa.selenium.logging.LogType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import java.time.Duration;
 import java.util.List;
+import java.util.logging.Level;
 import java.util.stream.Collectors;
 
 public class AppyPieAutomatePage {
 
     private static final Logger LOG = LoggerFactory.getLogger(AppyPieAutomatePage.class);
 
-    private WebDriver driver;
-    private WaitUtils waits;
+    // ---- Constants ----
+    private static final int PAGE_LOAD_TIMEOUT_SEC = 20;
+    private static final int DOC_READY_TIMEOUT_SEC = 5;
 
-    private By headerTitle = By.xpath("//h1[contains(text(),'Automate')]");
-    private By menuItems = By.xpath("//ul[contains(@class,'navbar-nav')]//a"); // Adjust based on DOM
+    private static final int MOBILE_WIDTH = 375;
+    private static final int MOBILE_HEIGHT = 812;
+
+    // ---- Driver & waits ----
+    private final WebDriver driver;
+    private final WaitUtils waits;
+
+    // ---- Locators ----
+    private final By headerTitle = By.xpath("//h1[contains(normalize-space(),'Automate')]");
+
+    private final By topNavLinks = By.cssSelector("ul.navbar-nav a");
 
     public AppyPieAutomatePage(WebDriver driver) {
         this.driver = driver;
-        this.waits = new WaitUtils(driver, Duration.ofSeconds(20));
+        this.waits = new WaitUtils(driver, Duration.ofSeconds(PAGE_LOAD_TIMEOUT_SEC));
     }
 
-    public boolean isFullyLoaded() {
+    // --------------------------------------------------
+    // Page readiness
+    // --------------------------------------------------
+
+    public void waitUntilLoaded() {
         waits.waitForVisible(headerTitle);
-        // still check document.readyState directly for completeness
-        new org.openqa.selenium.support.ui.WebDriverWait(driver, Duration.ofSeconds(5))
-                .until(webDriver -> ((JavascriptExecutor) webDriver).executeScript("return document.readyState").equals("complete"));
-
-        return true;
+        waitForDocumentReady();
+        LOG.info("AppyPie Automate page loaded");
     }
 
-    public long getLoadTime() {
-        JavascriptExecutor js = (JavascriptExecutor) driver;
-        Long loadTime = (Long) js.executeScript("return performance.timing.loadEventEnd - performance.timing.navigationStart;");
-        return loadTime;
+    private void waitForDocumentReady() {
+        new org.openqa.selenium.support.ui.WebDriverWait(
+                driver, Duration.ofSeconds(DOC_READY_TIMEOUT_SEC))
+                .until(d -> ((JavascriptExecutor) d)
+                        .executeScript("return document.readyState")
+                        .equals("complete"));
     }
 
-    public List<String> getMenuTexts() {
-        waits.waitForVisible(menuItems);
-        List<WebElement> els = driver.findElements(menuItems);
-        return els.stream().map(e -> e.getText().trim()).filter(t -> !t.isEmpty()).collect(Collectors.toList());
+    public boolean isPageLoadedCleanly() {
+        waitUntilLoaded();
+        String source = driver.getPageSource().toLowerCase();
+        return !source.contains("something went wrong")
+                && !source.contains("white screen");
     }
 
-    public boolean checkSpellingErrors(List<String> menuTexts) {
-        for (String text : menuTexts) {
-            if (text.matches(".*[^a-zA-Z ]+.*")) {
-                LOG.warn("Suspicious menu text: {}", text);
-                return false;
+    // --------------------------------------------------
+    // Navigation
+    // --------------------------------------------------
+
+    public boolean isOnAutomateDomain() {
+        return driver.getCurrentUrl()
+                .toLowerCase()
+                .contains("appypieautomate");
+    }
+
+    public boolean doAllTopNavLinksWork() {
+        int count = driver.findElements(topNavLinks).size();
+
+        for (int i = 0; i < count; i++) {
+            List<WebElement> links = driver.findElements(topNavLinks);
+            WebElement link = links.get(i);
+
+            if (!link.isDisplayed() || !link.isEnabled()) {
+                continue; // skip non-interactable nav items
+            }
+
+            String href = link.getAttribute("href");
+            if (href == null || href.isBlank()) {
+                continue;
+            }
+
+            try {
+                ((JavascriptExecutor) driver)
+                        .executeScript("arguments[0].scrollIntoView(true);", link);
+
+                waits.waitForClickable(link).click();
+                waitForDocumentReady();
+
+                if (driver.getTitle().contains("404")
+                        || driver.getCurrentUrl().contains("/404")) {
+                    return false;
+                }
+
+                driver.navigate().back();
+                waits.waitForVisible(headerTitle);
+
+            } catch (ElementNotInteractableException e) {
+                LOG.warn("Skipping non-interactable nav link: {}", href);
             }
         }
         return true;
     }
 
-    public long getLCP() {
-        JavascriptExecutor js = (JavascriptExecutor) driver;
-        Object entry = js.executeScript("let entries = performance.getEntriesByType('largest-contentful-paint');"
-                + "return entries && entries.length > 0 ? entries[entries.length - 1].startTime : -1;");
+    // --------------------------------------------------
+    // Primary actions
+    // --------------------------------------------------
 
-        if (entry instanceof Long)
-            return (Long) entry;
-        if (entry instanceof Number)
-            return ((Number) entry).longValue();
-        return -1; // fallback
+    public boolean isPrimaryActionClickable(By ctaLocator) {
+        try {
+            WebElement cta = waits.waitForClickable(ctaLocator);
+            return cta.isDisplayed() && cta.isEnabled();
+        } catch (TimeoutException e) {
+            return false;
+        }
+    }
+
+    // --------------------------------------------------
+    // JS errors
+    // --------------------------------------------------
+
+    public List<String> getSevereJsErrors() {
+        LogEntries logs = driver.manage().logs().get(LogType.BROWSER);
+        return logs.getAll().stream()
+                .filter(e -> e.getLevel().equals(Level.SEVERE))
+                .map(LogEntry::getMessage)
+                .collect(Collectors.toList());
+    }
+
+    // --------------------------------------------------
+    // Performance (modern API)
+    // --------------------------------------------------
+
+    public long getNavigationDurationMs() {
+        Object value = ((JavascriptExecutor) driver).executeScript(
+                "return performance.getEntriesByType('navigation')[0].duration;");
+        return ((Number) value).longValue();
+    }
+
+    public long getLCP() {
+        Object value = ((JavascriptExecutor) driver).executeScript(
+                "const e = performance.getEntriesByType('largest-contentful-paint');" +
+                        "return e.length ? e[e.length - 1].startTime : -1;");
+        return ((Number) value).longValue();
     }
 
     public double getCLS() {
-        JavascriptExecutor js = (JavascriptExecutor) driver;
-        Object cls = js.executeScript("let shifts = performance.getEntriesByType('layout-shift');"
-                + "return shifts && shifts.length > 0 ?" + "shifts.reduce((sum, e) => sum + e.value, 0) : 0;");
-        return ((Number) cls).doubleValue();
+        Object value = ((JavascriptExecutor) driver).executeScript(
+                "const s = performance.getEntriesByType('layout-shift');" +
+                        "return s.reduce((sum, e) => sum + e.value, 0);");
+        return ((Number) value).doubleValue();
+    }
+
+    // --------------------------------------------------
+    // Responsive smoke
+    // --------------------------------------------------
+
+    public boolean rendersCorrectlyOnMobile() {
+        Dimension originalSize = driver.manage().window().getSize();
+        try {
+            driver.manage().window()
+                    .setSize(new Dimension(MOBILE_WIDTH, MOBILE_HEIGHT));
+            waits.waitForVisible(headerTitle);
+            return driver.findElement(headerTitle).isDisplayed();
+        } finally {
+            driver.manage().window().setSize(originalSize);
+        }
+    }
+
+    // --------------------------------------------------
+    // Utilities
+    // --------------------------------------------------
+
+    public void scrollToElement(By locator) {
+        WebElement element = driver.findElement(locator);
+        ((JavascriptExecutor) driver)
+                .executeScript("arguments[0].scrollIntoView(true);", element);
     }
 
     public void scrollToBottom() {
-        ((JavascriptExecutor) driver).executeScript("window.scrollTo(0, document.body.scrollHeight);");
+        ((JavascriptExecutor) driver)
+                .executeScript("window.scrollTo(0, document.body.scrollHeight)");
     }
-
-    public void scrollToElement(By locator) {
-        WebElement element = waits.waitForVisible(locator);
-        ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView(true);", element);
-    }
-
 }

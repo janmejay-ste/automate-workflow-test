@@ -1,149 +1,166 @@
 package pages;
 
 import java.time.Duration;
-import java.util.Map;
 
 import org.openqa.selenium.*;
-import utils.HealthTracker;
-import utils.WaitUtils;
+import org.openqa.selenium.support.ui.WebDriverWait;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class ConnectTopNavigation {
 
-	private WebDriver driver;
-	private WaitUtils waits;
-    private static final Logger LOG = LoggerFactory.getLogger(ConnectTopNavigation.class);
+    private static final Logger LOG =
+            LoggerFactory.getLogger(ConnectTopNavigation.class);
 
-	public ConnectTopNavigation(WebDriver driver) {
-		this.driver = driver;
-		this.waits = new WaitUtils(driver, Duration.ofSeconds(15));
-	}
+    private static final String BASE_URL =
+            "https://www.appypieautomate.ai";
 
-	// Use a more resilient selector for the Features link (link text or href fragment)
-	private By featureBtn = By.linkText("Features");
-	private By appDirectoryBtn = By.id("app-directory");
-	private By aiAutomationBtn = By.cssSelector("a[href*='ai-automation']");
-	private By aiConnectsBtn = By.cssSelector("a[href*='ai-connects']");
-	private By mcpServerBtn = By.cssSelector("a[href*='mcp-server']");
-	private By pricingBtn = By.linkText("Pricing");
-	private By blogBtn = By.cssSelector("a[href*='blog']");
-	private By contactSalesBtn = By.linkText("Contact Sales");
-	private By signupBtn = By.cssSelector("a[title='Sign Up']");
-	private By loginBtn = By.linkText("Log In");
+    private final WebDriver driver;
+    private final WaitUtils waits;
 
-	private Map<String, String> fallbackUrls = Map.of("features", "https://www.appypieautomate.ai/integrate/features",
-			"app-directory", "https://www.appypieautomate.ai/integrate/app-directory", "automation",
-			"https://www.appypieautomate.ai/integrate/ai-workflow-builder", "ai-connects",
-			"https://www.appypieautomate.ai/ai-connects/", "mcp-server", "https://www.appypieautomate.ai/mcp/",
-			"pricing", "https://www.appypieautomate.ai/integrate/pricing-plan", "blog",
-			"https://www.appypieautomate.ai/blog/", "contact",
-			"https://calendly.com/d/cnsb-yh8-y2j/integration-specialist-team", "signup",
-			"https://accounts.appypie.com/register?frompage=https%3A%2F%2Fconnectcloud.appypie.com%2Fconnects&lang=en",
-			"login",
-			"https://accounts.appypie.com/login?frompage=https%3A%2F%2Fconnectcloud.appypie.com%2Fconnects&lang=en");
+    public ConnectTopNavigation(WebDriver driver) {
+        this.driver = driver;
+        this.waits = new WaitUtils(driver, Duration.ofSeconds(15));
+    }
 
-	private long navigate(By clickElement, String expectedUrlPart, String stepName) {
-		long start = System.currentTimeMillis();
-		boolean fallbackUsed = false;
-		String expectedLower = expectedUrlPart.toLowerCase();
+    // -------------------- Locators --------------------
 
-		String fallbackUrl = fallbackUrls.get(expectedUrlPart);
+    private final By features       = By.cssSelector("a[title='features']");
+    private final By appDirectory   = By.cssSelector("a[title='App Directory']");
+    private final By aiAutomation   = By.cssSelector("a[title='AI Automation']");
+    private final By aiConnects     = By.cssSelector("a[title='AI Agents']");
+    private final By mcpServer      = By.cssSelector("a[title='MCP Server']");
+    private final By pricing        = By.cssSelector("a[title='Pricing']");
+    private final By blog           = By.cssSelector("a[title='Appy Pie Automate Blog']");
+    private final By contactSales   = By.cssSelector("a[title='Contact Sales']");
+    private final By signup         = By.cssSelector("a[title='Sign Up']");
+    private final By login          = By.cssSelector("a[title='log in']");
 
-		try {
-			waits.waitForClickable(clickElement).click();
-		} catch (Exception e) {
-			// Record the exception and attempt a JS click fallback before using the configured fallback URL.
-			fallbackUsed = true;
-			String errMsg = e.getClass().getSimpleName() + ": " + e.getMessage();
-			LOG.warn("Navigation click failed for {} -> {}", stepName, errMsg);
-			HealthTracker.get().addWarning(stepName, "Click failed: " + errMsg);
+    // -------------------- Internal navigation --------------------
 
-			// Try JavaScript click as a fallback if the element exists in the DOM
-			try {
-				WebElement el = driver.findElement(clickElement);
-				if (el != null) {
-					if (driver instanceof JavascriptExecutor) {
-						((JavascriptExecutor) driver).executeScript("arguments[0].click();", el);
-						fallbackUsed = false; // JS click succeeded, do not mark fallback URL used yet
-						LOG.info("Performed JS click for {} as a fallback to normal click", stepName);
-					}
-				}
-			} catch (Exception jsEx) {
-				String jsErr = jsEx.getClass().getSimpleName() + ": " + jsEx.getMessage();
-				LOG.warn("JS click also failed for {} -> {}", stepName, jsErr);
-				HealthTracker.get().addWarning(stepName, "JS click failed: " + jsErr);
+    private void clickAndVerifyInternal(By locator, String expectedUrlPart) {
+        long start = System.currentTimeMillis();
 
-				// If JS click failed and a fallback URL is configured, navigate there
-				if (fallbackUrl != null) {
-					HealthTracker.get().recordFallback(stepName, fallbackUrl);
-					driver.get(fallbackUrl);
-				} else {
-					HealthTracker.get().addWarning(stepName, "No fallback URL configured");
-				}
-			}
-		}
+        WebElement el = waits.waitForVisible(locator);
+        el.click();
 
-		try {
-			new org.openqa.selenium.support.ui.WebDriverWait(driver, Duration.ofSeconds(10))
-				.until(web -> driver.getCurrentUrl().toLowerCase().contains(expectedLower));
-		} catch (TimeoutException te) {
-			HealthTracker.get().addWarning(stepName,
-					"Navigation mismatch → URL did not contain expected fragment: " + expectedUrlPart);
-		}
+        waitForUrlContains(expectedUrlPart);
 
-		long duration = System.currentTimeMillis() - start;
-		HealthTracker.get().recordNavStep(stepName, duration);
+        LOG.info("Navigation [{}] completed in {} ms",
+                expectedUrlPart,
+                System.currentTimeMillis() - start);
+    }
 
-		if (fallbackUsed) {
-			String fallbackDetailLine = stepName + " → " + (fallbackUrl == null ? "(none)" : fallbackUrl);
-			// consult HealthTracker whether this message should be suppressed from console output
-			boolean suppressed = HealthTracker.get().isSuppressedConsole(fallbackDetailLine) || HealthTracker.get().isSuppressedConsole("used fallback url");
-			if (!suppressed) {
-				LOG.info("Used fallback URL for {} → Test continues", stepName);
-			}
-		}
+    // -------------------- External navigation --------------------
 
-		return duration;
-	}
+private void clickVerifyAndReturn(By locator, String label) {
+    long start = System.currentTimeMillis();
 
-	public long goToFeatures() {
-		return navigate(featureBtn, "features", "Features");
-	}
+    // Ensure we're on the main page before clicking
+    restoreMainPage();
 
-	public long goToAppDirectory() {
-		return navigate(appDirectoryBtn, "app-directory", "App Directory");
-	}
+    String originalWindow = driver.getWindowHandle();
+    String originalUrl = driver.getCurrentUrl();
 
-	public long goToAIAutomation() {
-		return navigate(aiAutomationBtn, "automation", "AI Automation");
-	}
+    int originalWindowCount = driver.getWindowHandles().size();
 
-	public long goToAIConnects() {
-		return navigate(aiConnectsBtn, "ai-connects", "AI Connects");
-	}
+    WebElement el = waits.waitForVisible(locator);
 
-	public long goToMCPServer() {
-		return navigate(mcpServerBtn, "mcp-server", "MCP Server");
-	}
+    ((JavascriptExecutor) driver)
+            .executeScript("arguments[0].scrollIntoView(true);", el);
 
-	public long goToPricing() {
-		return navigate(pricingBtn, "pricing", "Pricing");
-	}
+    el.click();
 
-	public long goToBlog() {
-		return navigate(blogBtn, "blog", "Blog");
-	}
+    // Wait for either new tab OR navigation/state change
+    new WebDriverWait(driver, Duration.ofSeconds(15)).until(d ->
+            d.getWindowHandles().size() != originalWindowCount
+            || !d.getCurrentUrl().equals(originalUrl)
+    );
 
-	public long goToContactSales() {
-		return navigate(contactSalesBtn, "contact", "Contact Sales");
-	}
+    // If new tab opened, wait for it to load completely then close it
+    if (driver.getWindowHandles().size() > originalWindowCount) {
+        for (String window : driver.getWindowHandles()) {
+            if (!window.equals(originalWindow)) {
+                driver.switchTo().window(window);
+                
+                // Wait for the new tab to fully load
+                try {
+                    new WebDriverWait(driver, Duration.ofSeconds(20))
+                        .until(d -> ((JavascriptExecutor) d)
+                            .executeScript("return document.readyState")
+                            .equals("complete"));
+                    LOG.info("New tab [{}] loaded: {}", label, driver.getCurrentUrl());
+                } catch (Exception e) {
+                    LOG.warn("Timeout waiting for new tab to load: {}", e.getMessage());
+                }
+                
+                driver.close();
+            }
+        }
+        driver.switchTo().window(originalWindow);
+    }
 
-	public long goToSignup() {
-		return navigate(signupBtn, "signup", "Signup");
-	}
+    LOG.info("Navigation [{}] completed in {} ms",
+            label,
+            System.currentTimeMillis() - start);
+}
 
-	public long goToLogin() {
-		return navigate(loginBtn, "login", "Login");
-	}
+
+    private void restoreMainPage() {
+        driver.get(BASE_URL);
+
+        new WebDriverWait(driver, Duration.ofSeconds(15))
+            .until(d -> ((JavascriptExecutor) d)
+                .executeScript("return document.readyState")
+                .equals("complete"));
+
+        waits.waitForVisible(signup);
+    }
+    private void waitForUrlContains(String fragment) {
+        new WebDriverWait(driver, Duration.ofSeconds(10))
+            .until(d ->
+                d.getCurrentUrl().toLowerCase().contains(fragment.toLowerCase()));
+    }
+
+    // -------------------- Public API --------------------
+
+    public void openFeatures() {
+        clickAndVerifyInternal(features, "features");
+    }
+
+    public void openAppDirectory() {
+        clickAndVerifyInternal(appDirectory, "app-directory");
+    }
+
+    public void openAIAutomation() {
+        clickVerifyAndReturn(aiAutomation, "ai-workflow-builder");
+    }
+
+    public void openAIConnects() {
+        clickVerifyAndReturn(aiConnects, "ai-agents");
+    }
+
+    public void openMCPServer() {
+        clickAndVerifyInternal(mcpServer, "mcp");
+    }
+
+    public void openPricing() {
+        clickAndVerifyInternal(pricing, "pricing-plan");
+    }
+
+    public void openBlog() {
+        clickVerifyAndReturn(blog, "blog");
+    }
+
+    public void openContactSales() {
+        clickVerifyAndReturn(contactSales, "calendly");
+    }
+
+    public void openSignup() {
+        clickVerifyAndReturn(signup, "register");
+    }
+
+    public void openLogin() {
+        clickVerifyAndReturn(login, "login");
+    }
 }

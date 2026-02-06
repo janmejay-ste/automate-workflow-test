@@ -3,19 +3,21 @@ package testing;
 import base.BaseTest;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+import pages.SignupPage;
 
 public class SignupTest extends BaseTest {
 
-	@Test
-	public void signupRedirectsToIdentityProvider() {
+    @Test
+    public void signupFlowStartsCorrectly() throws InterruptedException {
 
-		driver.get("https://www.appypie.com/signup");
+        SignupPage signup = new SignupPage(driver);
 
-		boolean redirected = driver.getCurrentUrl().contains("accounts.appypie.com")
-				|| driver.getCurrentUrl().contains("/register");
+        signup.startSignup();
+        signup.waitForSignupFlowStart();
 
-		Assert.assertTrue(
-				redirected,
-				"Signup should redirect to identity provider. URL=" + driver.getCurrentUrl());
-	}
+        Assert.assertTrue(
+                signup.isInValidState(),
+                "Signup did not reach a valid auth state. URL=" + driver.getCurrentUrl()
+        );
+    }
 }
