@@ -26,8 +26,7 @@ public abstract class BaseTest {
     protected static WebDriver driver;
     private static final Logger LOG = LoggerFactory.getLogger(BaseTest.class);
 
-    protected static final String BASE_URL =
-            System.getProperty("base.url", "https://appypieautomate.ai");
+    protected static final String BASE_URL = System.getProperty("base.url", "https://appypieautomate.ai");
 
     // ---------- SUITE SETUP ----------
 
@@ -45,7 +44,7 @@ public abstract class BaseTest {
             driver = createDriver();
             driver.manage().window().maximize();
         }
-        driver.get(BASE_URL);
+        driver.get(BASE_URL); // Navigate to ensure clean starting state for each test
     }
 
     // ---------- TEST TEARDOWN ----------
@@ -76,18 +75,17 @@ public abstract class BaseTest {
             tracker.printReport();
             DashboardBuilder.write(); // Generate updated dashboard HTML
             LOG.info("Trend exported (score={})", score);
-     } 
-        //catch (Throwable t) {
-        //     LOG.warn("Trend export failed: {}", t.getMessage());
-        // } 
+        }
+        // catch (Throwable t) {
+        // LOG.warn("Trend export failed: {}", t.getMessage());
+        // }
         finally {
-             DashboardLauncher.launchIfEnabled();           
+            DashboardLauncher.launchIfEnabled();
             HealthGate.enforce(HealthTracker.get());
 
-            //quitDriver();
+            // quitDriver();
         }
     }
-
 
     // ---------- DRIVER ----------
 
@@ -95,7 +93,11 @@ public abstract class BaseTest {
         ChromeOptions options = new ChromeOptions();
 
         boolean headless = Boolean.parseBoolean(
-                System.getProperty("headless", "false"));
+                // for headless test
+                System.getProperty("headless", "true"));
+
+        // for local test
+        // System.getProperty("headless", "false"));
 
         if (headless) {
             options.addArguments("--headless=new");
@@ -111,20 +113,21 @@ public abstract class BaseTest {
     }
 
     // private static void quitDriver() {
-    //     try {
-    //         if (driver != null) {
-    //             driver.quit();
-    //         }
-    //     } catch (Exception ignored) {
-    //     } finally {
-    //         driver = null;
-    //     }
+    // try {
+    // if (driver != null) {
+    // driver.quit();
+    // }
+    // } catch (Exception ignored) {
+    // } finally {
+    // driver = null;
+    // }
     // }
 
     // ---------- FAILURE HANDLING ----------
 
     private void captureFailureArtifacts(ITestResult result) {
-        if (!isDriverHealthy()) return;
+        if (!isDriverHealthy())
+            return;
 
         try {
             File src = ((TakesScreenshot) driver).getScreenshotAs(OutputType.FILE);
@@ -148,9 +151,11 @@ public abstract class BaseTest {
 
     private boolean isDriverHealthy() {
         try {
-            if (driver == null) return false;
+            if (driver == null)
+                return false;
             Set<String> handles = driver.getWindowHandles();
-            if (handles == null || handles.isEmpty()) return false;
+            if (handles == null || handles.isEmpty())
+                return false;
             driver.getCurrentUrl();
             return true;
         } catch (Throwable t) {
@@ -162,8 +167,7 @@ public abstract class BaseTest {
 
     private void silenceJavaUtilLogging() {
         try {
-            java.util.logging.Logger root =
-                    java.util.logging.Logger.getLogger("");
+            java.util.logging.Logger root = java.util.logging.Logger.getLogger("");
             root.setLevel(Level.SEVERE);
             for (var h : root.getHandlers()) {
                 h.setLevel(Level.SEVERE);
@@ -172,4 +176,3 @@ public abstract class BaseTest {
         }
     }
 }
-

@@ -9,11 +9,9 @@ import org.slf4j.LoggerFactory;
 
 public class ConnectTopNavigation {
 
-    private static final Logger LOG =
-            LoggerFactory.getLogger(ConnectTopNavigation.class);
+    private static final Logger LOG = LoggerFactory.getLogger(ConnectTopNavigation.class);
 
-    private static final String BASE_URL =
-            "https://www.appypieautomate.ai";
+    private static final String BASE_URL = "https://www.appypieautomate.ai";
 
     private final WebDriver driver;
     private final WaitUtils waits;
@@ -25,16 +23,16 @@ public class ConnectTopNavigation {
 
     // -------------------- Locators --------------------
 
-    private final By features       = By.cssSelector("a[title='features']");
-    private final By appDirectory   = By.cssSelector("a[title='App Directory']");
-    private final By aiAutomation   = By.cssSelector("a[title='AI Automation']");
-    private final By aiConnects     = By.cssSelector("a[title='AI Agents']");
-    private final By mcpServer      = By.cssSelector("a[title='MCP Server']");
-    private final By pricing        = By.cssSelector("a[title='Pricing']");
-    private final By blog           = By.cssSelector("a[title='Appy Pie Automate Blog']");
-    private final By contactSales   = By.cssSelector("a[title='Contact Sales']");
-    private final By signup         = By.cssSelector("a[title='Sign Up']");
-    private final By login          = By.cssSelector("a[title='log in']");
+    private final By features = By.cssSelector("a[title='features']");
+    private final By appDirectory = By.cssSelector("a[title='App Directory']");
+    private final By aiAutomation = By.cssSelector("a[title='AI Automation']");
+    private final By aiConnects = By.cssSelector("a[title='AI Agents']");
+    private final By mcpServer = By.cssSelector("a[title='MCP Server']");
+    private final By pricing = By.cssSelector("a[title='Pricing']");
+    private final By blog = By.cssSelector("a[title='Appy Pie Automate Blog']");
+    private final By contactSales = By.cssSelector("a[title='Contact Sales']");
+    private final By signup = By.cssSelector("a[title='Sign Up']");
+    private final By login = By.cssSelector("a[title='log in']");
 
     // -------------------- Internal navigation --------------------
 
@@ -53,73 +51,95 @@ public class ConnectTopNavigation {
 
     // -------------------- External navigation --------------------
 
-private void clickVerifyAndReturn(By locator, String label) {
-    long start = System.currentTimeMillis();
+    private void clickVerifyAndReturn(By locator, String label) {
+        long start = System.currentTimeMillis();
 
-    // Ensure we're on the main page before clicking
-    restoreMainPage();
+        // Only restore main page if we're not already on the automate domain
+        String initialUrl = driver.getCurrentUrl();
+        if (!initialUrl.contains("appypieautomate.ai") && !initialUrl.contains("appypie.com")) {
+            restoreMainPage();
+        }
 
-    String originalWindow = driver.getWindowHandle();
-    String originalUrl = driver.getCurrentUrl();
+        final String urlBeforeClick = driver.getCurrentUrl();
+        String originalWindow = driver.getWindowHandle();
+        int originalWindowCount = driver.getWindowHandles().size();
 
-    int originalWindowCount = driver.getWindowHandles().size();
+        WebElement el = waits.waitForVisible(locator);
 
-    WebElement el = waits.waitForVisible(locator);
+        ((JavascriptExecutor) driver)
+                .executeScript("arguments[0].scrollIntoView(true);", el);
 
-    ((JavascriptExecutor) driver)
-            .executeScript("arguments[0].scrollIntoView(true);", el);
+        el.click();
 
-    el.click();
+        // Wait for either new tab OR navigation/state change
+        new WebDriverWait(driver, Duration.ofSeconds(15)).until(d -> d.getWindowHandles().size() != originalWindowCount
+                || !d.getCurrentUrl().equals(urlBeforeClick));
 
-    // Wait for either new tab OR navigation/state change
-    new WebDriverWait(driver, Duration.ofSeconds(15)).until(d ->
-            d.getWindowHandles().size() != originalWindowCount
-            || !d.getCurrentUrl().equals(originalUrl)
-    );
+        // If new tab opened, wait for it to load completely then close it
+        if (driver.getWindowHandles().size() > originalWindowCount) {
+            // Get the new window handle (there should only be one new tab)
+            String newWindow = null;
+            for (String window : driver.getWindowHandles()) {
+                if (!window.equals(originalWindow)) {
+                    newWindow = window;
+                    break;
+                }
+            }
 
-    // If new tab opened, wait for it to load completely then close it
-    if (driver.getWindowHandles().size() > originalWindowCount) {
-        for (String window : driver.getWindowHandles()) {
-            if (!window.equals(originalWindow)) {
-                driver.switchTo().window(window);
-                
-                // Wait for the new tab to fully load
+            if (newWindow != null) {
+                driver.switchTo().window(newWindow);
+
+                // Wait for the new tab to fully load (especially for Calendly which is slow)
                 try {
-                    new WebDriverWait(driver, Duration.ofSeconds(20))
-                        .until(d -> ((JavascriptExecutor) d)
-                            .executeScript("return document.readyState")
-                            .equals("complete"));
+                    new WebDriverWait(driver, Duration.ofSeconds(30))
+                            .until(d -> {
+                                String readyState = (String) ((JavascriptExecutor) d)
+                                        .executeScript("return document.readyState");
+                                return "complete".equals(readyState);
+                            });
+
+                    // Extra wait for Calendly to ensure the page is interactive
+                    if (driver.getCurrentUrl().contains("calendly")) {
+                        Thread.sleep(2000); // Allow Calendly iframe to initialize
+                    }
+
                     LOG.info("New tab [{}] loaded: {}", label, driver.getCurrentUrl());
                 } catch (Exception e) {
                     LOG.warn("Timeout waiting for new tab to load: {}", e.getMessage());
                 }
-                
+
                 driver.close();
             }
+
+            // Switch back and wait for main window
+            driver.switchTo().window(originalWindow);
+
+            // Wait for original window to be ready before continuing
+            new WebDriverWait(driver, Duration.ofSeconds(10))
+                    .until(d -> ((JavascriptExecutor) d)
+                            .executeScript("return document.readyState")
+                            .equals("complete"));
         }
-        driver.switchTo().window(originalWindow);
+
+        LOG.info("Navigation [{}] completed in {} ms",
+                label,
+                System.currentTimeMillis() - start);
     }
-
-    LOG.info("Navigation [{}] completed in {} ms",
-            label,
-            System.currentTimeMillis() - start);
-}
-
 
     private void restoreMainPage() {
         driver.get(BASE_URL);
 
         new WebDriverWait(driver, Duration.ofSeconds(15))
-            .until(d -> ((JavascriptExecutor) d)
-                .executeScript("return document.readyState")
-                .equals("complete"));
+                .until(d -> ((JavascriptExecutor) d)
+                        .executeScript("return document.readyState")
+                        .equals("complete"));
 
         waits.waitForVisible(signup);
     }
+
     private void waitForUrlContains(String fragment) {
         new WebDriverWait(driver, Duration.ofSeconds(10))
-            .until(d ->
-                d.getCurrentUrl().toLowerCase().contains(fragment.toLowerCase()));
+                .until(d -> d.getCurrentUrl().toLowerCase().contains(fragment.toLowerCase()));
     }
 
     // -------------------- Public API --------------------
