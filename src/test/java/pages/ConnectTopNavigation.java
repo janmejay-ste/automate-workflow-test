@@ -66,73 +66,116 @@ public class ConnectTopNavigation {
 
         WebElement el = waits.waitForVisible(locator);
 
-        ((JavascriptExecutor) driver)
-                .executeScript("arguments[0].scrollIntoView(true);", el);
-
-        el.click();
-
-        // Wait for either new tab OR navigation/state change
-        new WebDriverWait(driver, Duration.ofSeconds(15)).until(d -> d.getWindowHandles().size() != originalWindowCount
-                || !d.getCurrentUrl().equals(urlBeforeClick));
-
-        // If new tab opened, wait for it to load completely then close it
-        if (driver.getWindowHandles().size() > originalWindowCount) {
-            // Get the new window handle (there should only be one new tab)
-            String newWindow = null;
-            for (String window : driver.getWindowHandles()) {
-                if (!window.equals(originalWindow)) {
-                    newWindow = window;
-                    break;
-                }
-            }
-
-            if (newWindow != null) {
-                driver.switchTo().window(newWindow);
-
-                // Wait for the new tab to fully load (especially for Calendly which is slow)
-                try {
-                    new WebDriverWait(driver, Duration.ofSeconds(30))
-                            .until(d -> {
-                                String readyState = (String) ((JavascriptExecutor) d)
-                                        .executeScript("return document.readyState");
-                                return "complete".equals(readyState);
-                            });
-
-                    // Extra wait for Calendly to ensure the page is interactive
-                    if (driver.getCurrentUrl().contains("calendly")) {
-                        Thread.sleep(2000); // Allow Calendly iframe to initialize
-                    }
-
-                    LOG.info("New tab [{}] loaded: {}", label, driver.getCurrentUrl());
-                } catch (Exception e) {
-                    LOG.warn("Timeout waiting for new tab to load: {}", e.getMessage());
-                }
-
-                driver.close();
-            }
-
-            // Switch back and wait for main window
-            driver.switchTo().window(originalWindow);
-
-            // Wait for original window to be ready before continuing
-            new WebDriverWait(driver, Duration.ofSeconds(10))
-                    .until(d -> ((JavascriptExecutor) d)
-                            .executeScript("return document.readyState")
-                            .equals("complete"));
+        // Premium: Smooth scroll into view with slight delay
+        ((JavascriptExecutor) driver).executeScript(
+                "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", el);
+        try {
+            Thread.sleep(800);
+        } catch (InterruptedException ignored) {
         }
 
-        LOG.info("Navigation [{}] completed in {} ms",
-                label,
-                System.currentTimeMillis() - start);
+        try {
+            // LOCK: Inject overlay on the original tab to prevent interaction
+            LOG.info("Locking original tab for: {}", label);
+            ((JavascriptExecutor) driver).executeScript(
+                    "var lock = document.createElement('div');" +
+                            "lock.id = 'tab-locking-overlay';" +
+                            "lock.style.position = 'fixed';" +
+                            "lock.style.top = '0'; lock.style.left = '0';" +
+                            "lock.style.width = '100%'; lock.style.height = '100%';" +
+                            "lock.style.backgroundColor = 'rgba(0,0,0,0.1)';" +
+                            "lock.style.zIndex = '999999';" +
+                            "lock.style.cursor = 'not-allowed';" +
+                            "lock.innerHTML = '<div style=\"position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-family:sans-serif;color:#fff;background:rgba(0,0,0,0.7);padding:20px;border-radius:10px;\">Processing in new tab...</div>';"
+                            +
+                            "document.body.appendChild(lock);");
+
+            // CLICK via JS to bypass overlay interception
+            ((JavascriptExecutor) driver).executeScript("arguments[0].click();", el);
+
+            // Wait for either new tab OR navigation/state change
+            new WebDriverWait(driver, Duration.ofSeconds(15)).until(
+                    d -> d.getWindowHandles().size() != originalWindowCount
+                            || !d.getCurrentUrl().equals(urlBeforeClick));
+
+            // If new tab opened, strictly wait for it to finish
+            if (driver.getWindowHandles().size() > originalWindowCount) {
+                String newWindow = null;
+                for (String window : driver.getWindowHandles()) {
+                    if (!window.equals(originalWindow)) {
+                        newWindow = window;
+                        break;
+                    }
+                }
+
+                if (newWindow != null) {
+                    driver.switchTo().window(newWindow);
+                    LOG.info("Switched to new tab: {}", label);
+
+                    try {
+                        // Wait for new tab load
+                        new WebDriverWait(driver, Duration.ofSeconds(30)).until(d -> ((JavascriptExecutor) d)
+                                .executeScript("return document.readyState").equals("complete"));
+
+                        // Delay for Calendly/External content
+                        Thread.sleep(1500);
+
+                        // Scrolling in the new tab for "each page" as requested
+                        ((JavascriptExecutor) driver).executeScript("window.scrollTo({top: 500, behavior: 'smooth'});");
+                        Thread.sleep(800);
+                        ((JavascriptExecutor) driver).executeScript("window.scrollTo({top: 0, behavior: 'smooth'});");
+                        Thread.sleep(500);
+
+                        LOG.info("New tab [{}] interaction complete: {}", label, driver.getCurrentUrl());
+                    } catch (Exception e) {
+                        LOG.warn("Interaction in new tab failed: {}", e.getMessage());
+                    }
+                }
+            }
+        } finally {
+            // Robust Fail-Safe: Close all windows except original and switch back
+            for (String handle : driver.getWindowHandles()) {
+                if (!handle.equals(originalWindow)) {
+                    try {
+                        driver.switchTo().window(handle);
+                        driver.close();
+                        LOG.info("Forcibly closed extra tab");
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+            driver.switchTo().window(originalWindow);
+
+            // UNLOCK: Remove the overlay
+            LOG.info("Unlocking original tab");
+            ((JavascriptExecutor) driver).executeScript(
+                    "var lock = document.getElementById('tab-locking-overlay');" +
+                            "if(lock) lock.remove();");
+
+            // Explicit wait for stability
+            try {
+                new WebDriverWait(driver, Duration.ofSeconds(10)).until(
+                        d -> ((JavascriptExecutor) d).executeScript("return document.readyState").equals("complete"));
+            } catch (Exception ignored) {
+            }
+        }
+
+        LOG.info("Navigation [{}] completed in {} ms", label, System.currentTimeMillis() - start);
     }
 
     private void restoreMainPage() {
         driver.get(BASE_URL);
 
+        // Add scroll to home for aesthetics
+        ((JavascriptExecutor) driver).executeScript("window.scrollTo({top: 300, behavior: 'smooth'});");
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException ignored) {
+        }
+        ((JavascriptExecutor) driver).executeScript("window.scrollTo({top: 0, behavior: 'smooth'});");
+
         new WebDriverWait(driver, Duration.ofSeconds(15))
-                .until(d -> ((JavascriptExecutor) d)
-                        .executeScript("return document.readyState")
-                        .equals("complete"));
+                .until(d -> ((JavascriptExecutor) d).executeScript("return document.readyState").equals("complete"));
 
         waits.waitForVisible(signup);
     }

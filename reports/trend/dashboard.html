@@ -6,6 +6,7 @@
 <title>Health Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -80,7 +81,9 @@ body {
   letter-spacing: 0.5px;
 }
 .badge-healthy { background: #dcfce7; color: #16a34a; }
-.badge-warning { background: #fef3c7; color: #d97706; }
+.badge-minor { background: #dbeafe; color: #2563eb; }
+.badge-degraded { background: #fef3c7; color: #d97706; }
+.badge-warning { background: #ffedd5; color: #ea580c; }
 .badge-critical { background: #fee2e2; color: #dc2626; }
 
 /* Stats Grid */
@@ -280,6 +283,42 @@ tr:hover { background: #f8fafc; }
   font-size: 12px;
   color: #64748b;
 }
+.error-short.expandable {
+  cursor: pointer;
+  color: #3b82f6;
+}
+.error-short.expandable::after {
+  content: ' ▶ click to expand';
+  font-size: 10px;
+  color: #94a3b8;
+  font-style: italic;
+}
+.error-full {
+  display: none;
+  margin-top: 8px;
+  padding: 10px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  word-break: break-all;
+  white-space: pre-wrap;
+  font-size: 12px;
+  color: #334155;
+  line-height: 1.5;
+}
+.error-full.visible {
+  display: block;
+}
+.error-short.expandable.expanded::after {
+  content: ' ▼ click to collapse';
+}
+
+/* Pulsing latest-run marker */
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.6); }
+  70% { box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+}
 
 /* Badges */
 .badge {
@@ -299,13 +338,55 @@ tr:hover { background: #f8fafc; }
 .badge-fail { background: #fee2e2; color: #dc2626; }
 
 /* Chart */
-.chart-container { height: 300px; position: relative; }
+.chart-container { height: 360px; position: relative; }
+.chart-container-sm { height: 280px; position: relative; }
+
+/* Trend Stats Bar */
+.trend-stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.trend-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+}
+.trend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.trend-dot-healthy { background: #10b981; }
+.trend-dot-minor { background: #3b82f6; }
+.trend-dot-degraded { background: #f59e0b; }
+.trend-dot-atrisk { background: #f97316; }
+.trend-dot-critical { background: #ef4444; }
+.trend-divider {
+  width: 1px;
+  height: 20px;
+  background: #e2e8f0;
+}
 
 /* Two Column Layout */
 .two-col {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 20px;
+}
+
+/* Three Column Layout for charts */
+.chart-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
 }
 
 /* Runs Header */
@@ -323,6 +404,7 @@ tr:hover { background: #f8fafc; }
 @media (max-width: 1200px) {
   .stats-grid { grid-template-columns: repeat(3, 1fr); }
   .two-col { grid-template-columns: 1fr; }
+  .chart-row { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
   .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -343,15 +425,15 @@ tr:hover { background: #f8fafc; }
     <div class="header-left">
       <h1>🏥 Health Dashboard</h1>
       <div class="header-meta">
-        <span>📅 Jan 23, 2026 06:31:01</span>
-        <span>⚡ Penalty: 61 pts</span>
+        <span>📅 Feb 10, 2026 16:54:05</span>
+        <span>⚡ Penalty: 150 pts</span>
       </div>
     </div>
     <div class="header-right">
-      <span class="status-badge badge-warning">AT RISK</span>
+      <span class="status-badge badge-critical">CRITICAL</span>
       <div class="score-display">
         <div class="score-label">Health Score</div>
-        <div><span class="score-value">39</span><span class="score-max"> / 100</span></div>
+        <div><span class="score-value">0</span><span class="score-max"> / 100</span></div>
       </div>
     </div>
   </div>
@@ -365,22 +447,22 @@ tr:hover { background: #f8fafc; }
     </div>
     <div class="stat-card warning">
       <div class="stat-label">JS Errors</div>
-      <div class="stat-value">4</div>
+      <div class="stat-value">205</div>
       <div class="stat-icon icon-warning">⚠</div>
     </div>
     <div class="stat-card warning">
       <div class="stat-label">Warnings</div>
-      <div class="stat-value">28</div>
+      <div class="stat-value">3</div>
       <div class="stat-icon icon-warning">!</div>
     </div>
     <div class="stat-card info">
       <div class="stat-label">Slow Pages</div>
-      <div class="stat-value">5</div>
+      <div class="stat-value">0</div>
       <div class="stat-icon icon-info">🐢</div>
     </div>
     <div class="stat-card warning">
       <div class="stat-label">Fallbacks Used</div>
-      <div class="stat-value">4</div>
+      <div class="stat-value">6</div>
       <div class="stat-icon icon-warning">↩</div>
     </div>
     <div class="stat-card success">
@@ -390,20 +472,46 @@ tr:hover { background: #f8fafc; }
     </div>
   </div>
 
-  <!-- Health Score Trend -->
-  <div class="section">
-    <div class="section-header">
-      <div class="section-title">📈 Health Score Trend</div>
+  <!-- Health Score Trend + Penalty Breakdown -->
+  <div class="chart-row">
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title">📈 Health Score Trend</div>
+        <div class="trend-stats">
+          <span class="trend-stat"><span class="trend-dot trend-dot-healthy"></span>Healthy: 0</span>
+          <span class="trend-divider"></span>
+          <span class="trend-stat"><span class="trend-dot trend-dot-minor"></span>Minor: 2</span>
+          <span class="trend-divider"></span>
+          <span class="trend-stat"><span class="trend-dot trend-dot-degraded"></span>Degraded: 0</span>
+          <span class="trend-divider"></span>
+          <span class="trend-stat"><span class="trend-dot trend-dot-atrisk"></span>At Risk: 0</span>
+          <span class="trend-divider"></span>
+          <span class="trend-stat"><span class="trend-dot trend-dot-critical"></span>Critical: 7</span>
+        </div>
+      </div>
+      <div class="chart-container">
+        <canvas id="trendChart"></canvas>
+      </div>
     </div>
-    <div class="chart-container">
-      <canvas id="trendChart"></canvas>
+    <div class="section">
+      <div class="section-header">
+        <div class="section-title">🔍 Penalty Breakdown</div>
+      </div>
+      <div class="chart-container-sm">
+        <canvas id="penaltyChart"></canvas>
+      </div>
+      <div style="text-align:center;margin-top:12px;">
+        <span style="font-size:32px;font-weight:700;color:#ef4444;">0</span>
+        <span style="font-size:14px;color:#94a3b8;">/100</span>
+        <div style="font-size:12px;color:#64748b;margin-top:4px;">Total Penalty: 150 pts</div>
+      </div>
     </div>
   </div>
 
   <!-- Slow Pages -->
   <div class="section">
     <div class="section-header">
-      <div class="section-title">🐢 Slow Pages <span class="count">5</span></div>
+      <div class="section-title">🐢 Slow Pages <span class="count">0</span></div>
       <div class="filter-controls">
         <button class="filter-btn active" data-filter="all" data-table="slowPages">All</button>
         <button class="filter-btn" data-filter="critical" data-table="slowPages">Critical</button>
@@ -416,12 +524,7 @@ tr:hover { background: #f8fafc; }
         <tr><th data-sort="text">Page <span class="sort-icon">↕</span></th><th data-sort="duration">Load Time <span class="sort-icon">↕</span></th><th data-sort="severity">Severity <span class="sort-icon">↕</span></th></tr>
       </thead>
       <tbody>
-<tr data-severity="critical"><td>AI Automation</td><td>26.38s</td><td><span class="badge badge-critical">Critical</span></td></tr>
-<tr data-severity="critical"><td>MCP Server</td><td>25.94s</td><td><span class="badge badge-critical">Critical</span></td></tr>
-<tr data-severity="medium"><td>Contact Sales</td><td>11.76s</td><td><span class="badge badge-medium">Medium</span></td></tr>
-<tr data-severity="critical"><td>Signup</td><td>27.92s</td><td><span class="badge badge-critical">Critical</span></td></tr>
-<tr data-severity="high"><td>Login</td><td>17.39s</td><td><span class="badge badge-high">High</span></td></tr>
-
+<tr><td colspan="3" style="text-align:center;color:#94a3b8;">No slow pages detected</td></tr>
       </tbody>
     </table>
   </div>
@@ -431,27 +534,224 @@ tr:hover { background: #f8fafc; }
     <!-- JS Errors -->
     <div class="section">
       <div class="section-header collapsible-header" data-target="jsErrorsContent">
-        <div class="section-title">⚠️ JS Errors <span class="count">4</span></div>
+        <div class="section-title">🛑 JS Errors <span class="count">205</span></div>
+        <div class="filter-controls">
+          <button class="filter-btn active" data-filter="all" data-table="jsErrors">All</button>
+          <button class="filter-btn" data-filter="critical" data-table="jsErrors">Critical</button>
+          <button class="filter-btn" data-filter="high" data-table="jsErrors">High</button>
+        </div>
       </div>
       <div class="collapsible-content" id="jsErrorsContent">
-        <table>
+        <table id="jsErrorsTable">
           <thead>
-            <tr><th>Source</th><th>Error Message</th></tr>
+            <tr><th style="width:150px;">Source</th><th style="width:100px;">Severity</th><th>Error Message</th></tr>
           </thead>
           <tbody>
-<tr class="js-error-row"><td>HomePage</td><td class="error-msg" title="https://www.appypie.com/ 251:4 Uncaught TypeError: Cannot read properties of null (reading 'addEventListener')">https://www.appypie.com/ 251:4 Uncaught TypeError: Cannot read properties of null (reading 'addEvent...</td></tr>
-<tr class="js-error-row"><td>HomePage</td><td class="error-msg" title="https://www.appypie.com/ 577:34 Uncaught TypeError: Cannot read properties of null (reading 'offsetTop')">https://www.appypie.com/ 577:34 Uncaught TypeError: Cannot read properties of null (reading 'offsetT...</td></tr>
-<tr class="js-error-row"><td>NavigateToAutomate</td><td class="error-msg" title="https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading ...</td></tr>
-<tr class="js-error-row"><td>Signup</td><td class="error-msg" title="https://accounts.appypie.com/main.82526db9e901e091.js 0:1144306 &quot;ERROR&quot; TypeError: Cannot read properties of null (reading 'addEventListener')
-    at https://accounts.appypie.com/src_app_public_auth_register_registration_module_ts.c7f244c83416e8c0.js:1:32026
-    at H.&lt;computed&gt; (https://accounts.appypie.com/polyfills.6d0a88c9d77b8f6f.js:1:28665)
-    at I.invokeTask (https://accounts.appypie.com/polyfills.6d0a88c9d77b8f6f.js:1:7707)
-    at Object.onInvokeTask (https://accounts.appypie.com/main.82526db9e901e091.js:1:1160588)
-    at I.invokeTask (https://accounts.appypie.com/polyfills.6d0a88c9d77b8f6f.js:1:7628)
-    at B.runTask (https://accounts.appypie.com/polyfills.6d0a88c9d77b8f6f.js:1:3075)
-    at invokeTask (https://accounts.appypie.com/polyfills.6d0a88c9d77b8f6f.js:1:8761)
-    at invoke (https://accounts.appypie.com/polyfills.6d0a88c9d77b8f6f.js:1:8662)
-    at b.args.&lt;computed&gt; (https://accounts.appypie.com/polyfills.6d0a88c9d77b8f6f.js:1:28377)">https://accounts.appypie.com/main.82526db9e901e091.js 0:1144306 &quot;ERROR&quot; TypeError: Cannot read prope...</td></tr>
+            <tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/integrate/apps/categories/wordpress 770:42 Uncaug...</div><div class="error-full">https://www.appypieautomate.ai/integrate/apps/categories/wordpress 770:42 Uncaught TypeError: Cannot read properties of null (reading 'addEventListener')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://accounts.appypie.com/main.48ab61dafcd1f9ed.js 0:1144245 &quot;ERROR&quot; TypeErro...</div><div class="error-full">https://accounts.appypie.com/main.48ab61dafcd1f9ed.js 0:1144245 &quot;ERROR&quot; TypeError: Cannot read properties of null (reading 'addEventListener')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://accounts.appypie.com/main.48ab61dafcd1f9ed.js 0:1144245 &quot;ERROR&quot; TypeErro...</div><div class="error-full">https://accounts.appypie.com/main.48ab61dafcd1f9ed.js 0:1144245 &quot;ERROR&quot; TypeError: Cannot read properties of null (reading 'addEventListener')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://accounts.appypie.com/main.48ab61dafcd1f9ed.js 0:1144245 &quot;ERROR&quot; TypeErro...</div><div class="error-full">https://accounts.appypie.com/main.48ab61dafcd1f9ed.js 0:1144245 &quot;ERROR&quot; TypeError: Cannot read properties of null (reading 'addEventListener')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://accounts.appypie.com/main.48ab61dafcd1f9ed.js 0:1144245 &quot;ERROR&quot; TypeErro...</div><div class="error-full">https://accounts.appypie.com/main.48ab61dafcd1f9ed.js 0:1144245 &quot;ERROR&quot; TypeError: Cannot read properties of null (reading 'addEventListener')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://accounts.appypie.com/main.48ab61dafcd1f9ed.js 0:1144245 &quot;ERROR&quot; TypeErro...</div><div class="error-full">https://accounts.appypie.com/main.48ab61dafcd1f9ed.js 0:1144245 &quot;ERROR&quot; TypeError: Cannot read properties of null (reading 'addEventListener')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://accounts.appypie.com/main.48ab61dafcd1f9ed.js 0:1144245 &quot;ERROR&quot; TypeErro...</div><div class="error-full">https://accounts.appypie.com/main.48ab61dafcd1f9ed.js 0:1144245 &quot;ERROR&quot; TypeError: Cannot read properties of null (reading 'addEventListener')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="high"><td>AutomateUX</td><td><span class="badge badge-high">High</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot set properties of null (setting 'innerHTML')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught ...</div><div class="error-full">https://media.appypieautomate.ai/public/js/jquery-3.6.4.min.js 1:31822 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ai-agents/ 171:2296 &quot;zaraz is loaded twice&quot;</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/ 171:2296 &quot;zaraz is loaded twice&quot;</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ai-agents/ - Refused to apply style from 'https:/...</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/ - Refused to apply style from 'https://www.appypieautomate.ai/ai-agents/css/solution.css' because its MIME type ('text/html') is not a supported stylesheet MIME type, and strict MIME checking is enabled.</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ai-agents/lead-generation-automation 173:2296 &quot;za...</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/lead-generation-automation 173:2296 &quot;zaraz is loaded twice&quot;</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ai-agents/lead-generation-automation - Refused to...</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/lead-generation-automation - Refused to apply style from 'https://www.appypieautomate.ai/ai-agents/css/solution.css' because its MIME type ('text/html') is not a supported stylesheet MIME type, and strict MIME checking is enabled.</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ai-agents/content-automation 173:2296 &quot;zaraz is l...</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/content-automation 173:2296 &quot;zaraz is loaded twice&quot;</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ai-agents/content-automation - Refused to apply s...</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/content-automation - Refused to apply style from 'https://www.appypieautomate.ai/ai-agents/css/solution.css' because its MIME type ('text/html') is not a supported stylesheet MIME type, and strict MIME checking is enabled.</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ai-agents/employee-onboarding-automation 173:2296...</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/employee-onboarding-automation 173:2296 &quot;zaraz is loaded twice&quot;</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ai-agents/employee-onboarding-automation 335 Refu...</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/employee-onboarding-automation 335 Refused to apply style from 'https://www.appypieautomate.ai/ai-agents/css/solution.css' because its MIME type ('text/html') is not a supported stylesheet MIME type, and strict MIME checking is enabled.</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ai-agents/project-management-automation 173:2296 ...</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/project-management-automation 173:2296 &quot;zaraz is loaded twice&quot;</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ai-agents/project-management-automation - Refused...</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/project-management-automation - Refused to apply style from 'https://www.appypieautomate.ai/ai-agents/css/solution.css' because its MIME type ('text/html') is not a supported stylesheet MIME type, and strict MIME checking is enabled.</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ai-agents/sales-automation 173:2296 &quot;zaraz is loa...</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/sales-automation 173:2296 &quot;zaraz is loaded twice&quot;</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ai-agents/sales-automation 1585 Refused to apply ...</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/sales-automation 1585 Refused to apply style from 'https://www.appypieautomate.ai/ai-agents/css/solution.css' because its MIME type ('text/html') is not a supported stylesheet MIME type, and strict MIME checking is enabled.</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ai-agents/social-media-automation 173:2296 &quot;zaraz...</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/social-media-automation 173:2296 &quot;zaraz is loaded twice&quot;</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ai-agents/social-media-automation 1265 Refused to...</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/social-media-automation 1265 Refused to apply style from 'https://www.appypieautomate.ai/ai-agents/css/solution.css' because its MIME type ('text/html') is not a supported stylesheet MIME type, and strict MIME checking is enabled.</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ai-agents/ 0 Refused to apply style from 'https:/...</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/ 0 Refused to apply style from 'https://www.appypieautomate.ai/ai-agents/css/solution.css' because its MIME type ('text/html') is not a supported stylesheet MIME type, and strict MIME checking is enabled.</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ai-agents/ 171:2296 &quot;zaraz is loaded twice&quot;</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/ 171:2296 &quot;zaraz is loaded twice&quot;</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ai-agents/ - Refused to apply style from 'https:/...</div><div class="error-full">https://www.appypieautomate.ai/ai-agents/ - Refused to apply style from 'https://www.appypieautomate.ai/ai-agents/css/solution.css' because its MIME type ('text/html') is not a supported stylesheet MIME type, and strict MIME checking is enabled.</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/mcp/ 110:131 &quot;zaraz is loaded twice&quot;</div><div class="error-full">https://www.appypieautomate.ai/mcp/ 110:131 &quot;zaraz is loaded twice&quot;</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/blog/wp-content/plugins/email-subscriber/js/scrip...</div><div class="error-full">https://www.appypieautomate.ai/blog/wp-content/plugins/email-subscriber/js/scripts.js - Failed to load resource: the server responded with a status of 410 ()</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://accounts.appypie.com/main.48ab61dafcd1f9ed.js 0:1144245 &quot;ERROR&quot; TypeErro...</div><div class="error-full">https://accounts.appypie.com/main.48ab61dafcd1f9ed.js 0:1144245 &quot;ERROR&quot; TypeError: Cannot read properties of null (reading 'addEventListener')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>TopNavigation</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">https://www.appypieautomate.ai/ 1243:24 Uncaught</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>ContactSales</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>ContactSales</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>WordPressCategory</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>WordPressCategory</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/integrate/apps/categories/wordpress 770:42 Uncaug...</div><div class="error-full">https://www.appypieautomate.ai/integrate/apps/categories/wordpress 770:42 Uncaught TypeError: Cannot read properties of null (reading 'addEventListener')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/this-page-does-not-exist-12345 - Failed to load r...</div><div class="error-full">https://www.appypieautomate.ai/this-page-does-not-exist-12345 - Failed to load resource: the server responded with a status of 404 ()</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/this-page-does-not-exist-12345 - Failed to load r...</div><div class="error-full">https://www.appypieautomate.ai/this-page-does-not-exist-12345 - Failed to load resource: the server responded with a status of 404 ()</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/this-page-does-not-exist-12345 - Failed to load r...</div><div class="error-full">https://www.appypieautomate.ai/this-page-does-not-exist-12345 - Failed to load resource: the server responded with a status of 404 ()</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/this-page-does-not-exist-12345 - Failed to load r...</div><div class="error-full">https://www.appypieautomate.ai/this-page-does-not-exist-12345 - Failed to load resource: the server responded with a status of 404 ()</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/%3Cscript%3Ealert(1)%3C/script%3E - Failed to loa...</div><div class="error-full">https://www.appypieautomate.ai/%3Cscript%3Ealert(1)%3C/script%3E - Failed to load resource: the server responded with a status of 404 ()</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/verylongpathverylongpathverylongpathverylongpathv...</div><div class="error-full">https://www.appypieautomate.ai/verylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpathverylongpath - Failed to load resource: the server responded with a status of 403 ()</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>ErrorHandling</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short">500 error encountered during test</div><div class="error-full">500 error encountered during test</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properti...</div><div class="error-full">https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')</div></td></tr>
+<tr class="js-error-row" data-severity="medium"><td>GLOBAL</td><td><span class="badge badge-medium">Medium</span></td><td class="error-msg"><div class="error-short expandable">https://accounts.appypie.com/main.48ab61dafcd1f9ed.js 0:1144245 &quot;ERROR&quot; TypeErro...</div><div class="error-full">https://accounts.appypie.com/main.48ab61dafcd1f9ed.js 0:1144245 &quot;ERROR&quot; TypeError: Cannot read properties of null (reading 'addEventListener')</div></td></tr>
 
           </tbody>
         </table>
@@ -461,7 +761,7 @@ tr:hover { background: #f8fafc; }
     <!-- Fallback Details -->
     <div class="section">
       <div class="section-header collapsible-header" data-target="fallbackContent">
-        <div class="section-title">↩️ Fallback Details <span class="count">4</span></div>
+        <div class="section-title">↩️ Fallback Details <span class="count">6</span></div>
       </div>
       <div class="collapsible-content" id="fallbackContent">
         <table>
@@ -469,10 +769,12 @@ tr:hover { background: #f8fafc; }
             <tr><th>Navigation</th><th>Fallback URL</th></tr>
           </thead>
           <tbody>
-<tr><td>AI Automation</td><td class="url-cell"><a href="https://www.appypieautomate.ai/integrate/ai-workflow-builder" target="_blank">https://www.appypieautomate.ai/integrate/ai-workflow-builder</a></td></tr>
-<tr><td>MCP Server</td><td class="url-cell"><a href="https://www.appypieautomate.ai/mcp/" target="_blank">https://www.appypieautomate.ai/mcp/</a></td></tr>
-<tr><td>Signup</td><td class="url-cell"><a href="https://accounts.appypie.com/register?frompage=https%3A%2F%2Fconnectcloud.appypie.com%2Fconnects&amp;lang=en" target="_blank">https://accounts.appypie.com/register?frompage=https%3A%2F%2...</a></td></tr>
-<tr><td>Login</td><td class="url-cell"><a href="https://accounts.appypie.com/login?frompage=https%3A%2F%2Fconnectcloud.appypie.com%2Fconnects&amp;lang=en" target="_blank">https://accounts.appypie.com/login?frompage=https%3A%2F%2Fco...</a></td></tr>
+<tr><td>PairingLoginRedirect</td><td class="url-cell"><a href="https://accounts.appypie.com/register?frompage=https:%2F%2Fconnectcloud.appypie.com%2Fbuild-your-connect%2Fapps__for__k2zq0oct02js11f3ce11tsug&amp;lang=en" target="_blank">https://accounts.appypie.com/register?frompage=https:%2F%2Fc...</a></td></tr>
+<tr><td>PairingLoginRedirect</td><td class="url-cell"><a href="https://accounts.appypie.com/register?frompage=https:%2F%2Fconnectcloud.appypie.com%2Fbuild-your-connect%2Fapps__for__janrt1t408q0aa7cdc9gypvu_k3pplzjk0c7s11f3ce9la56o&amp;lang=en" target="_blank">https://accounts.appypie.com/register?frompage=https:%2F%2Fc...</a></td></tr>
+<tr><td>PairingLoginRedirect</td><td class="url-cell"><a href="https://accounts.appypie.com/register?frompage=https:%2F%2Fconnectcloud.appypie.com%2Fbuild-your-connect%2Fapps__for__janrt1td08q0aa7cdc9m6yee_lqetmf170leg7189998yigea&amp;lang=en" target="_blank">https://accounts.appypie.com/register?frompage=https:%2F%2Fc...</a></td></tr>
+<tr><td>PairingLoginRedirect</td><td class="url-cell"><a href="https://accounts.appypie.com/register?frompage=https:%2F%2Fconnectcloud.appypie.com%2Fbuild-your-connect%2Fapps__for__janrt1t608q0aa7cdc9i2cyy_l669y6xa06187189995mj6k6&amp;lang=en" target="_blank">https://accounts.appypie.com/register?frompage=https:%2F%2Fc...</a></td></tr>
+<tr><td>PairingLoginRedirect</td><td class="url-cell"><a href="https://accounts.appypie.com/register?frompage=https:%2F%2Fconnectcloud.appypie.com%2Fbuild-your-connect%2Fapps__for__janrt1t408q0aa7cdc9gypvu_m8r691p512ueb25883ge4s6x&amp;lang=en" target="_blank">https://accounts.appypie.com/register?frompage=https:%2F%2Fc...</a></td></tr>
+<tr><td>PairingLoginRedirect</td><td class="url-cell"><a href="https://accounts.appypie.com/register?frompage=https:%2F%2Fconnectcloud.appypie.com%2Fbuild-your-connect%2Fapps__for__jnpl1uik645c878la4sp_jnpl1uik645c87fp051p&amp;lang=en" target="_blank">https://accounts.appypie.com/register?frompage=https:%2F%2Fc...</a></td></tr>
 
           </tbody>
         </table>
@@ -483,11 +785,11 @@ tr:hover { background: #f8fafc; }
   <!-- Warnings Details -->
   <div class="section">
     <div class="section-header collapsible-header" data-target="warningsContent">
-      <div class="section-title">📋 Warnings Details <span class="count">28</span></div>
+      <div class="section-title">📋 Warnings Details <span class="count">3</span></div>
       <div class="filter-controls">
         <button class="filter-btn active" data-filter="all" data-table="warnings">All</button>
-        <button class="filter-btn" data-filter="high" data-table="warnings">High (9)</button>
-        <button class="filter-btn" data-filter="low" data-table="warnings">Low (19)</button>
+        <button class="filter-btn" data-filter="high" data-table="warnings">High (0)</button>
+        <button class="filter-btn" data-filter="low" data-table="warnings">Low (3)</button>
       </div>
     </div>
     <div class="collapsible-content" id="warningsContent">
@@ -495,93 +797,16 @@ tr:hover { background: #f8fafc; }
         <h4 style="color:#ea580c;margin:16px 0 8px;font-size:14px;">🔴 High Severity</h4>
         <table>
           <thead><tr><th>Source</th><th>Warning</th></tr></thead>
-          <tbody><tr><td>HomePage</td><td title="JS Error: https://www.appypie.com/ 251:4 Uncaught TypeError: Cannot read properties of null (reading 'addEventListener')">JS Error: https://www.appypie.com/ 251:4 Uncaught TypeError: Cannot read propert...</td></tr>
-<tr><td>HomePage</td><td title="JS Error: https://www.appypie.com/ 577:34 Uncaught TypeError: Cannot read properties of null (reading 'offsetTop')">JS Error: https://www.appypie.com/ 577:34 Uncaught TypeError: Cannot read proper...</td></tr>
-<tr><td>NavigateToAutomate</td><td title="JS Error: https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot read properties of null (reading 'appendChild')">JS Error: https://www.appypieautomate.ai/ 1243:24 Uncaught TypeError: Cannot rea...</td></tr>
-<tr><td>AI Automation</td><td title="Slow page: AI Automation = 26379 ms">Slow page: AI Automation = 26379 ms</td></tr>
-<tr><td>MCP Server</td><td title="Slow page: MCP Server = 25938 ms">Slow page: MCP Server = 25938 ms</td></tr>
-<tr><td>Contact Sales</td><td title="Slow page: Contact Sales = 11758 ms">Slow page: Contact Sales = 11758 ms</td></tr>
-<tr><td>Signup</td><td title="Slow page: Signup = 27915 ms">Slow page: Signup = 27915 ms</td></tr>
-<tr><td>Signup</td><td title="JS Error: https://accounts.appypie.com/main.82526db9e901e091.js 0:1144306 &quot;ERROR&quot; TypeError: Cannot read properties of null (reading 'addEventListener')">JS Error: https://accounts.appypie.com/main.82526db9e901e091.js 0:1144306 &quot;ERROR...</td></tr>
-<tr><td>Login</td><td title="Slow page: Login = 17394 ms">Slow page: Login = 17394 ms</td></tr>
-</tbody>
+          <tbody><tr><td colspan="2" style="text-align:center;color:#94a3b8;">No high severity warnings</td></tr></tbody>
         </table>
       </div>
       <div id="warningsLow" class="warnings-group">
         <h4 style="color:#64748b;margin:16px 0 8px;font-size:14px;">🟡 Low Severity</h4>
         <table>
           <thead><tr><th>Source</th><th>Warning</th></tr></thead>
-          <tbody><tr><td>HomePage</td><td title="Title unexpected: 'AI No-Code Platform to Turn Prompt to Apps &amp; Websites'">Title unexpected: 'AI No-Code Platform to Turn Prompt to Apps &amp; Websites'</td></tr>
-<tr><td>CDN/Plugin</td><td title="Resource issue: https://www.appypie.com/ - The resource https://www.appypie.com/wp-content/uploads/2024/08/homeBannermobile.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.">Resource issue: https://www.appypie.com/ - The resource https://www.appypie.com/...</td></tr>
-<tr><td>CDN/Plugin</td><td title="Resource issue: https://www.appypie.com/ - The resource https://images.appypie.com/wp-content/uploads/2024/08/30113137/homeBanner.webp was preloaded using link preload but not used within a few seconds from the window's load event. Please make sure it has an appropriate `as` value and it is preloaded intentionally.">Resource issue: https://www.appypie.com/ - The resource https://images.appypie.c...</td></tr>
-<tr><td>Performance</td><td title="LCP unavailable">LCP unavailable</td></tr>
-<tr><td>UX</td><td title="Popular Automations missing/unreachable">Popular Automations missing/unreachable</td></tr>
-<tr><td>AI Automation</td><td title="Click failed: TimeoutException: Expected condition failed: waiting for element to be clickable: By.cssSelector: a[href*='ai-automation'] (tried for 15 second(s) with 500 milliseconds interval)
-Build info: version: '4.24.0', revision: '748ffc9bc3'
-System info: os.name: 'Mac OS X', os.arch: 'x86_64', os.version: '15.7.3', java.version: '25.0.1'
-Driver info: org.openqa.selenium.chrome.ChromeDriver
-Capabilities {acceptInsecureCerts: false, browserName: chrome, browserVersion: 144.0.7559.97, chrome: {chromedriverVersion: 144.0.7559.96 (d7b80622cfab..., userDataDir: /var/folders/74/9_jgzv7j695...}, fedcm:accounts: true, goog:chromeOptions: {debuggerAddress: localhost:57328}, goog:processID: 4981, networkConnectionEnabled: false, pageLoadStrategy: normal, platformName: mac, proxy: Proxy(), se:cdp: ws://localhost:57328/devtoo..., se:cdpVersion: 144.0.7559.97, setWindowRect: true, strictFileInteractability: false, timeouts: {implicit: 0, pageLoad: 300000, script: 30000}, unhandledPromptBehavior: dismiss and notify, webauthn:extension:credBlob: true, webauthn:extension:largeBlob: true, webauthn:extension:minPinLength: true, webauthn:extension:prf: true, webauthn:virtualAuthenticators: true}
-Session ID: 2dfb8ea7c1d646dfeac605a1763161d1">Click failed: TimeoutException: Expected condition failed: waiting for element t...</td></tr>
-<tr><td>AI Automation</td><td title="JS click failed: NoSuchElementException: no such element: Unable to locate element: {&quot;method&quot;:&quot;css selector&quot;,&quot;selector&quot;:&quot;a[href*='ai-automation']&quot;}
-  (Session info: chrome=144.0.7559.97)
-For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exception
-Build info: version: '4.24.0', revision: '748ffc9bc3'
-System info: os.name: 'Mac OS X', os.arch: 'x86_64', os.version: '15.7.3', java.version: '25.0.1'
-Driver info: org.openqa.selenium.chrome.ChromeDriver
-Command: [2dfb8ea7c1d646dfeac605a1763161d1, findElement {value=a[href*='ai-automation'], using=css selector}]
-Capabilities {acceptInsecureCerts: false, browserName: chrome, browserVersion: 144.0.7559.97, chrome: {chromedriverVersion: 144.0.7559.96 (d7b80622cfab..., userDataDir: /var/folders/74/9_jgzv7j695...}, fedcm:accounts: true, goog:chromeOptions: {debuggerAddress: localhost:57328}, goog:processID: 4981, networkConnectionEnabled: false, pageLoadStrategy: normal, platformName: mac, proxy: Proxy(), se:cdp: ws://localhost:57328/devtoo..., se:cdpVersion: 144.0.7559.97, setWindowRect: true, strictFileInteractability: false, timeouts: {implicit: 0, pageLoad: 300000, script: 30000}, unhandledPromptBehavior: dismiss and notify, webauthn:extension:credBlob: true, webauthn:extension:largeBlob: true, webauthn:extension:minPinLength: true, webauthn:extension:prf: true, webauthn:virtualAuthenticators: true}
-Session ID: 2dfb8ea7c1d646dfeac605a1763161d1">JS click failed: NoSuchElementException: no such element: Unable to locate eleme...</td></tr>
-<tr><td>AI Automation</td><td title="Navigation mismatch → URL did not contain expected fragment: automation">Navigation mismatch → URL did not contain expected fragment: automation</td></tr>
-<tr><td>Analytics</td><td title="Tracking: https://www.appypieautomate.ai/ai-connects/ 171:2296 &quot;zaraz is loaded twice&quot;">Tracking: https://www.appypieautomate.ai/ai-connects/ 171:2296 &quot;zaraz is loaded ...</td></tr>
-<tr><td>MCP Server</td><td title="Click failed: TimeoutException: Expected condition failed: waiting for element to be clickable: By.cssSelector: a[href*='mcp-server'] (tried for 15 second(s) with 500 milliseconds interval)
-Build info: version: '4.24.0', revision: '748ffc9bc3'
-System info: os.name: 'Mac OS X', os.arch: 'x86_64', os.version: '15.7.3', java.version: '25.0.1'
-Driver info: org.openqa.selenium.chrome.ChromeDriver
-Capabilities {acceptInsecureCerts: false, browserName: chrome, browserVersion: 144.0.7559.97, chrome: {chromedriverVersion: 144.0.7559.96 (d7b80622cfab..., userDataDir: /var/folders/74/9_jgzv7j695...}, fedcm:accounts: true, goog:chromeOptions: {debuggerAddress: localhost:57328}, goog:processID: 4981, networkConnectionEnabled: false, pageLoadStrategy: normal, platformName: mac, proxy: Proxy(), se:cdp: ws://localhost:57328/devtoo..., se:cdpVersion: 144.0.7559.97, setWindowRect: true, strictFileInteractability: false, timeouts: {implicit: 0, pageLoad: 300000, script: 30000}, unhandledPromptBehavior: dismiss and notify, webauthn:extension:credBlob: true, webauthn:extension:largeBlob: true, webauthn:extension:minPinLength: true, webauthn:extension:prf: true, webauthn:virtualAuthenticators: true}
-Session ID: 2dfb8ea7c1d646dfeac605a1763161d1">Click failed: TimeoutException: Expected condition failed: waiting for element t...</td></tr>
-<tr><td>MCP Server</td><td title="JS click failed: NoSuchElementException: no such element: Unable to locate element: {&quot;method&quot;:&quot;css selector&quot;,&quot;selector&quot;:&quot;a[href*='mcp-server']&quot;}
-  (Session info: chrome=144.0.7559.97)
-For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exception
-Build info: version: '4.24.0', revision: '748ffc9bc3'
-System info: os.name: 'Mac OS X', os.arch: 'x86_64', os.version: '15.7.3', java.version: '25.0.1'
-Driver info: org.openqa.selenium.chrome.ChromeDriver
-Command: [2dfb8ea7c1d646dfeac605a1763161d1, findElement {value=a[href*='mcp-server'], using=css selector}]
-Capabilities {acceptInsecureCerts: false, browserName: chrome, browserVersion: 144.0.7559.97, chrome: {chromedriverVersion: 144.0.7559.96 (d7b80622cfab..., userDataDir: /var/folders/74/9_jgzv7j695...}, fedcm:accounts: true, goog:chromeOptions: {debuggerAddress: localhost:57328}, goog:processID: 4981, networkConnectionEnabled: false, pageLoadStrategy: normal, platformName: mac, proxy: Proxy(), se:cdp: ws://localhost:57328/devtoo..., se:cdpVersion: 144.0.7559.97, setWindowRect: true, strictFileInteractability: false, timeouts: {implicit: 0, pageLoad: 300000, script: 30000}, unhandledPromptBehavior: dismiss and notify, webauthn:extension:credBlob: true, webauthn:extension:largeBlob: true, webauthn:extension:minPinLength: true, webauthn:extension:prf: true, webauthn:virtualAuthenticators: true}
-Session ID: 2dfb8ea7c1d646dfeac605a1763161d1">JS click failed: NoSuchElementException: no such element: Unable to locate eleme...</td></tr>
-<tr><td>MCP Server</td><td title="Navigation mismatch → URL did not contain expected fragment: mcp-server">Navigation mismatch → URL did not contain expected fragment: mcp-server</td></tr>
-<tr><td>Analytics</td><td title="Tracking: https://www.appypieautomate.ai/mcp/ 110:131 &quot;zaraz is loaded twice&quot;">Tracking: https://www.appypieautomate.ai/mcp/ 110:131 &quot;zaraz is loaded twice&quot;</td></tr>
-<tr><td>Contact Sales</td><td title="Navigation mismatch → URL did not contain expected fragment: contact">Navigation mismatch → URL did not contain expected fragment: contact</td></tr>
-<tr><td>Signup</td><td title="Click failed: TimeoutException: Expected condition failed: waiting for element to be clickable: By.cssSelector: a[title='Sign Up'] (tried for 15 second(s) with 500 milliseconds interval)
-Build info: version: '4.24.0', revision: '748ffc9bc3'
-System info: os.name: 'Mac OS X', os.arch: 'x86_64', os.version: '15.7.3', java.version: '25.0.1'
-Driver info: org.openqa.selenium.chrome.ChromeDriver
-Capabilities {acceptInsecureCerts: false, browserName: chrome, browserVersion: 144.0.7559.97, chrome: {chromedriverVersion: 144.0.7559.96 (d7b80622cfab..., userDataDir: /var/folders/74/9_jgzv7j695...}, fedcm:accounts: true, goog:chromeOptions: {debuggerAddress: localhost:57328}, goog:processID: 4981, networkConnectionEnabled: false, pageLoadStrategy: normal, platformName: mac, proxy: Proxy(), se:cdp: ws://localhost:57328/devtoo..., se:cdpVersion: 144.0.7559.97, setWindowRect: true, strictFileInteractability: false, timeouts: {implicit: 0, pageLoad: 300000, script: 30000}, unhandledPromptBehavior: dismiss and notify, webauthn:extension:credBlob: true, webauthn:extension:largeBlob: true, webauthn:extension:minPinLength: true, webauthn:extension:prf: true, webauthn:virtualAuthenticators: true}
-Session ID: 2dfb8ea7c1d646dfeac605a1763161d1">Click failed: TimeoutException: Expected condition failed: waiting for element t...</td></tr>
-<tr><td>Signup</td><td title="JS click failed: NoSuchElementException: no such element: Unable to locate element: {&quot;method&quot;:&quot;css selector&quot;,&quot;selector&quot;:&quot;a[title='Sign Up']&quot;}
-  (Session info: chrome=144.0.7559.97)
-For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exception
-Build info: version: '4.24.0', revision: '748ffc9bc3'
-System info: os.name: 'Mac OS X', os.arch: 'x86_64', os.version: '15.7.3', java.version: '25.0.1'
-Driver info: org.openqa.selenium.chrome.ChromeDriver
-Command: [2dfb8ea7c1d646dfeac605a1763161d1, findElement {value=a[title='Sign Up'], using=css selector}]
-Capabilities {acceptInsecureCerts: false, browserName: chrome, browserVersion: 144.0.7559.97, chrome: {chromedriverVersion: 144.0.7559.96 (d7b80622cfab..., userDataDir: /var/folders/74/9_jgzv7j695...}, fedcm:accounts: true, goog:chromeOptions: {debuggerAddress: localhost:57328}, goog:processID: 4981, networkConnectionEnabled: false, pageLoadStrategy: normal, platformName: mac, proxy: Proxy(), se:cdp: ws://localhost:57328/devtoo..., se:cdpVersion: 144.0.7559.97, setWindowRect: true, strictFileInteractability: false, timeouts: {implicit: 0, pageLoad: 300000, script: 30000}, unhandledPromptBehavior: dismiss and notify, webauthn:extension:credBlob: true, webauthn:extension:largeBlob: true, webauthn:extension:minPinLength: true, webauthn:extension:prf: true, webauthn:virtualAuthenticators: true}
-Session ID: 2dfb8ea7c1d646dfeac605a1763161d1">JS click failed: NoSuchElementException: no such element: Unable to locate eleme...</td></tr>
-<tr><td>Signup</td><td title="Navigation mismatch → URL did not contain expected fragment: signup">Navigation mismatch → URL did not contain expected fragment: signup</td></tr>
-<tr><td>Login</td><td title="Click failed: TimeoutException: Expected condition failed: waiting for element to be clickable: By.linkText: Log In (tried for 15 second(s) with 500 milliseconds interval)
-Build info: version: '4.24.0', revision: '748ffc9bc3'
-System info: os.name: 'Mac OS X', os.arch: 'x86_64', os.version: '15.7.3', java.version: '25.0.1'
-Driver info: org.openqa.selenium.chrome.ChromeDriver
-Capabilities {acceptInsecureCerts: false, browserName: chrome, browserVersion: 144.0.7559.97, chrome: {chromedriverVersion: 144.0.7559.96 (d7b80622cfab..., userDataDir: /var/folders/74/9_jgzv7j695...}, fedcm:accounts: true, goog:chromeOptions: {debuggerAddress: localhost:57328}, goog:processID: 4981, networkConnectionEnabled: false, pageLoadStrategy: normal, platformName: mac, proxy: Proxy(), se:cdp: ws://localhost:57328/devtoo..., se:cdpVersion: 144.0.7559.97, setWindowRect: true, strictFileInteractability: false, timeouts: {implicit: 0, pageLoad: 300000, script: 30000}, unhandledPromptBehavior: dismiss and notify, webauthn:extension:credBlob: true, webauthn:extension:largeBlob: true, webauthn:extension:minPinLength: true, webauthn:extension:prf: true, webauthn:virtualAuthenticators: true}
-Session ID: 2dfb8ea7c1d646dfeac605a1763161d1">Click failed: TimeoutException: Expected condition failed: waiting for element t...</td></tr>
-<tr><td>Login</td><td title="JS click failed: NoSuchElementException: no such element: Unable to locate element: {&quot;method&quot;:&quot;link text&quot;,&quot;selector&quot;:&quot;Log In&quot;}
-  (Session info: chrome=144.0.7559.97)
-For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#no-such-element-exception
-Build info: version: '4.24.0', revision: '748ffc9bc3'
-System info: os.name: 'Mac OS X', os.arch: 'x86_64', os.version: '15.7.3', java.version: '25.0.1'
-Driver info: org.openqa.selenium.chrome.ChromeDriver
-Command: [2dfb8ea7c1d646dfeac605a1763161d1, findElement {value=Log In, using=link text}]
-Capabilities {acceptInsecureCerts: false, browserName: chrome, browserVersion: 144.0.7559.97, chrome: {chromedriverVersion: 144.0.7559.96 (d7b80622cfab..., userDataDir: /var/folders/74/9_jgzv7j695...}, fedcm:accounts: true, goog:chromeOptions: {debuggerAddress: localhost:57328}, goog:processID: 4981, networkConnectionEnabled: false, pageLoadStrategy: normal, platformName: mac, proxy: Proxy(), se:cdp: ws://localhost:57328/devtoo..., se:cdpVersion: 144.0.7559.97, setWindowRect: true, strictFileInteractability: false, timeouts: {implicit: 0, pageLoad: 300000, script: 30000}, unhandledPromptBehavior: dismiss and notify, webauthn:extension:credBlob: true, webauthn:extension:largeBlob: true, webauthn:extension:minPinLength: true, webauthn:extension:prf: true, webauthn:virtualAuthenticators: true}
-Session ID: 2dfb8ea7c1d646dfeac605a1763161d1">JS click failed: NoSuchElementException: no such element: Unable to locate eleme...</td></tr>
+          <tbody><tr><td>AppDirectory</td><td title="Gibberish search returned results - may indicate no filtering">Gibberish search returned results - may indicate no filtering</td></tr>
+<tr><td>UX</td><td title="Popular Automations section missing">Popular Automations section missing</td></tr>
+<tr><td>ErrorHandling</td><td title="404 page has no obvious way to navigate home">404 page has no obvious way to navigate home</td></tr>
 </tbody>
         </table>
       </div>
@@ -628,21 +853,37 @@ Session ID: 2dfb8ea7c1d646dfeac605a1763161d1">JS click failed: NoSuchElementExce
 </div>
 
 <script>
-// Chart
-const labels = ["Run #37","Run #38","Run #39","Run #40","Run #41","Run #42","Run #43","Run #44","Run #45","Run #46","Run #47","Run #48","Run #49","Run #50","Run #51"];
-const data = [54,81,81,78,78,48,48,50,50,38,38,0,0,0,0];
-const avgScore = 42;
-const threshold = 80;
+// === DATA ===
+const labels = ["Run #1","Run #2","Run #3","Run #4","Run #5","Run #6","Run #7","Run #8","Run #9"];
+const scoreData = [0,0,0,88,0,88,0,0,0];
+const penaltyData = [100,100,100,12,100,12,100,100,100];
+const statusData = ["CRITICAL","CRITICAL","CRITICAL","MINOR","CRITICAL","MINOR","CRITICAL","CRITICAL","CRITICAL"];
+const jsErrorData = [170,45,170,2,204,2,208,170,205];
+const failedTestData = [1,0,0,0,0,0,0,0,0];
+const avgScore = 19;
+const threshold = 90;
+const currentPenalty = 150;
+const currentJsErrors = 205;
+const currentSlowPages = 0;
+const currentFallbacks = 6;
+const currentWarnings = 3;
 
+// === TREND CHART ===
 if (labels.length > 0) {
   const ctx = document.getElementById('trendChart').getContext('2d');
-  const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-  gradient.addColorStop(0, 'rgba(16, 185, 129, 0.3)');
-  gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
 
-  // Create threshold and average data arrays
-  const thresholdData = labels.map(() => threshold);
-  const avgData = labels.map(() => avgScore);
+  // Dynamic point colors based on score
+  const lastIdx = scoreData.length - 1;
+  const pointColors = scoreData.map((s, i) => i === lastIdx ? '#6366f1' : s >= 90 ? '#10b981' : s >= 75 ? '#3b82f6' : s >= 60 ? '#f59e0b' : s >= 40 ? '#f97316' : '#ef4444');
+  const pointBorderColors = scoreData.map((s, i) => i === lastIdx ? '#4338ca' : s >= 90 ? '#059669' : s >= 75 ? '#2563eb' : s >= 60 ? '#d97706' : s >= 40 ? '#ea580c' : '#dc2626');
+  const pointRadii = scoreData.map((s, i) => i === lastIdx ? 10 : 5);
+  const pointStyles = scoreData.map((s, i) => i === lastIdx ? 'rectRot' : 'circle');
+  const pointBorderWidths = scoreData.map((s, i) => i === lastIdx ? 3 : 2);
+
+  // Gradient fill
+  const gradient = ctx.createLinearGradient(0, 0, 0, 360);
+  gradient.addColorStop(0, 'rgba(99, 102, 241, 0.15)');
+  gradient.addColorStop(1, 'rgba(99, 102, 241, 0.0)');
 
   new Chart(ctx, {
     type: 'line',
@@ -651,22 +892,24 @@ if (labels.length > 0) {
       datasets: [
         {
           label: 'Health Score',
-          data: data,
-          borderColor: '#10b981',
+          data: scoreData,
+          borderColor: '#6366f1',
           backgroundColor: gradient,
           fill: true,
-          tension: 0.4,
-          pointRadius: 5,
-          pointBackgroundColor: '#10b981',
-          pointBorderColor: '#fff',
-          pointBorderWidth: 2,
+          tension: 0.3,
+          pointRadius: pointRadii,
+          pointBackgroundColor: pointColors,
+          pointBorderColor: pointBorderColors,
+          pointBorderWidth: pointBorderWidths,
+          pointStyle: pointStyles,
+          pointHoverRadius: 10,
           borderWidth: 3,
           order: 1
         },
         {
-          label: 'Healthy Threshold (80)',
-          data: thresholdData,
-          borderColor: '#22c55e',
+          label: 'Healthy Threshold (90)',
+          data: labels.map(() => threshold),
+          borderColor: 'rgba(34, 197, 94, 0.5)',
           borderWidth: 2,
           borderDash: [8, 4],
           pointRadius: 0,
@@ -675,8 +918,8 @@ if (labels.length > 0) {
         },
         {
           label: 'Average (' + avgScore + ')',
-          data: avgData,
-          borderColor: '#3b82f6',
+          data: labels.map(() => avgScore),
+          borderColor: 'rgba(59, 130, 246, 0.5)',
           borderWidth: 2,
           borderDash: [4, 4],
           pointRadius: 0,
@@ -688,24 +931,180 @@ if (labels.length > 0) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: {
+        mode: 'index',
+        intersect: false
+      },
       plugins: {
         legend: {
           display: true,
           position: 'top',
           labels: {
             usePointStyle: true,
-            padding: 20,
-            font: { size: 12 }
+            padding: 16,
+            font: { size: 12 },
+            filter: function(item) {
+              return item.datasetIndex <= 2;
+            }
           }
         },
         tooltip: {
           backgroundColor: '#1e293b',
           titleColor: '#fff',
-          bodyColor: '#fff',
-          padding: 12,
-          cornerRadius: 8,
+          bodyColor: '#e2e8f0',
+          padding: 16,
+          cornerRadius: 10,
+          titleFont: { size: 14, weight: '600' },
+          bodyFont: { size: 12 },
+          bodySpacing: 6,
+          displayColors: false,
           filter: function(tooltipItem) {
             return tooltipItem.datasetIndex === 0;
+          },
+          callbacks: {
+            title: function(items) {
+              return items[0].label;
+            },
+            label: function(context) {
+              const idx = context.dataIndex;
+              const score = scoreData[idx];
+              const penalty = penaltyData[idx];
+              const status = statusData[idx];
+              const jsErr = jsErrorData[idx];
+              const failedT = failedTestData[idx];
+              const statusLabel = status.replace('_', ' ');
+              const lines = [];
+              lines.push('Score: ' + score + ' / 100');
+              lines.push('Status: ' + statusLabel);
+              lines.push('Penalty: ' + penalty + ' pts');
+              if (jsErr !== null && jsErr >= 0) lines.push('JS Errors: ' + jsErr);
+              if (failedT !== null && failedT >= 0) lines.push('Failed Tests: ' + failedT);
+              if (score === 0) lines.push('⚠ Critical: Score bottomed out');
+              return lines;
+            },
+            afterLabel: function(context) {
+              const idx = context.dataIndex;
+              if (idx > 0) {
+                const diff = scoreData[idx] - scoreData[idx - 1];
+                if (diff !== 0) {
+                  const arrow = diff > 0 ? '↑' : '↓';
+                  const color = diff > 0 ? '🟢' : '🔴';
+                  return color + ' ' + arrow + ' ' + Math.abs(diff) + ' from previous run';
+                }
+              }
+              return '';
+            }
+          }
+        },
+        annotation: {
+          annotations: {
+            healthyZone: {
+              type: 'box',
+              yMin: 90,
+              yMax: 100,
+              backgroundColor: 'rgba(16, 185, 129, 0.08)',
+              borderWidth: 0,
+              label: {
+                display: true,
+                content: 'HEALTHY',
+                position: {x: 'end', y: 'center'},
+                color: 'rgba(16, 185, 129, 0.5)',
+                font: { size: 10, weight: '600' },
+                padding: 3
+              }
+            },
+            minorZone: {
+              type: 'box',
+              yMin: 75,
+              yMax: 90,
+              backgroundColor: 'rgba(59, 130, 246, 0.05)',
+              borderWidth: 0,
+              label: {
+                display: true,
+                content: 'MINOR',
+                position: {x: 'end', y: 'center'},
+                color: 'rgba(59, 130, 246, 0.4)',
+                font: { size: 10, weight: '600' },
+                padding: 3
+              }
+            },
+            degradedZone: {
+              type: 'box',
+              yMin: 60,
+              yMax: 75,
+              backgroundColor: 'rgba(245, 158, 11, 0.05)',
+              borderWidth: 0,
+              label: {
+                display: true,
+                content: 'DEGRADED',
+                position: {x: 'end', y: 'center'},
+                color: 'rgba(245, 158, 11, 0.4)',
+                font: { size: 10, weight: '600' },
+                padding: 3
+              }
+            },
+            atRiskZone: {
+              type: 'box',
+              yMin: 40,
+              yMax: 60,
+              backgroundColor: 'rgba(249, 115, 22, 0.05)',
+              borderWidth: 0,
+              label: {
+                display: true,
+                content: 'AT RISK',
+                position: {x: 'end', y: 'center'},
+                color: 'rgba(249, 115, 22, 0.4)',
+                font: { size: 10, weight: '600' },
+                padding: 3
+              }
+            },
+            criticalZone: {
+              type: 'box',
+              yMin: 0,
+              yMax: 40,
+              backgroundColor: 'rgba(239, 68, 68, 0.05)',
+              borderWidth: 0,
+              label: {
+                display: true,
+                content: 'CRITICAL',
+                position: {x: 'end', y: 'center'},
+                color: 'rgba(239, 68, 68, 0.35)',
+                font: { size: 10, weight: '600' },
+                padding: 3
+              }
+            },
+            healthyLine: {
+              type: 'line',
+              yMin: 90,
+              yMax: 90,
+              borderColor: 'rgba(16, 185, 129, 0.3)',
+              borderWidth: 1,
+              borderDash: [6, 3]
+            },
+            minorLine: {
+              type: 'line',
+              yMin: 75,
+              yMax: 75,
+              borderColor: 'rgba(59, 130, 246, 0.3)',
+              borderWidth: 1,
+              borderDash: [6, 3]
+            },
+            degradedLine: {
+              type: 'line',
+              yMin: 60,
+              yMax: 60,
+              borderColor: 'rgba(245, 158, 11, 0.3)',
+              borderWidth: 1,
+              borderDash: [6, 3]
+            },
+            atRiskLine: {
+              type: 'line',
+              yMin: 40,
+              yMax: 40,
+              borderColor: 'rgba(249, 115, 22, 0.3)',
+              borderWidth: 1,
+              borderDash: [6, 3]
+            }
           }
         }
       },
@@ -713,8 +1112,17 @@ if (labels.length > 0) {
         y: {
           min: 0,
           max: 100,
-          grid: { color: '#f1f5f9' },
-          ticks: { font: { size: 12 } }
+          grid: { color: 'rgba(241, 245, 249, 0.8)' },
+          ticks: {
+            font: { size: 12 },
+            callback: function(value) {
+              if (value === 90) return '90 ─ Healthy';
+              if (value === 75) return '75 ─ Minor';
+              if (value === 60) return '60 ─ Degraded';
+              if (value === 40) return '40 ─ At Risk';
+              return value;
+            }
+          }
         },
         x: {
           grid: { display: false },
@@ -724,6 +1132,71 @@ if (labels.length > 0) {
     }
   });
 }
+
+// === PENALTY BREAKDOWN DONUT ===
+(function() {
+  const penaltyCtx = document.getElementById('penaltyChart').getContext('2d');
+  // Estimate penalty source breakdown from available snapshot data
+  const jsErrPenalty = currentJsErrors * 10;  // ~10 pts per JS error
+  const slowPagePenalty = currentSlowPages * 5; // ~5 pts per slow page
+  const fallbackPenalty = currentFallbacks * 3; // ~3 pts per fallback
+  const otherPenalty = Math.max(0, currentPenalty - jsErrPenalty - slowPagePenalty - fallbackPenalty);
+  const remaining = Math.max(0, 100 - currentPenalty);
+
+  new Chart(penaltyCtx, {
+    type: 'doughnut',
+    data: {
+      labels: ['JS Errors', 'Slow Pages', 'Fallbacks', 'Other Warnings', 'Healthy'],
+      datasets: [{
+        data: [jsErrPenalty, slowPagePenalty, fallbackPenalty, otherPenalty, remaining],
+        backgroundColor: [
+          'rgba(239, 68, 68, 0.8)',
+          'rgba(59, 130, 246, 0.8)',
+          'rgba(245, 158, 11, 0.8)',
+          'rgba(148, 163, 184, 0.6)',
+          'rgba(16, 185, 129, 0.8)'
+        ],
+        borderColor: '#fff',
+        borderWidth: 3,
+        hoverOffset: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '65%',
+      plugins: {
+        legend: {
+          display: true,
+          position: 'bottom',
+          labels: {
+            usePointStyle: true,
+            padding: 12,
+            font: { size: 11 },
+            filter: function(item) {
+              return item.raw > 0;
+            }
+          }
+        },
+        tooltip: {
+          backgroundColor: '#1e293b',
+          titleColor: '#fff',
+          bodyColor: '#e2e8f0',
+          padding: 12,
+          cornerRadius: 8,
+          callbacks: {
+            label: function(context) {
+              const val = context.raw;
+              return context.label + ': ' + val + ' pts';
+            }
+          }
+        }
+      }
+    }
+  });
+})();
+
+// === INTERACTIVITY ===
 
 // Collapsible sections
 document.querySelectorAll('.collapsible-header').forEach(header => {
@@ -749,6 +1222,8 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
     // Apply filter
     if (table === 'slowPages') {
       filterTable('slowPagesTable', 'data-severity', filter);
+    } else if (table === 'jsErrors') {
+      filterTable('jsErrorsTable', 'data-severity', filter);
     } else if (table === 'tests') {
       filterTable('testsTable', 'data-status', filter);
     } else if (table === 'warnings') {
@@ -777,6 +1252,15 @@ document.getElementById('testSearch')?.addEventListener('input', (e) => {
   document.querySelectorAll('#testsTable tbody tr').forEach(row => {
     const text = row.textContent.toLowerCase();
     row.style.display = text.includes(query) ? '' : 'none';
+  });
+});
+
+// Expandable JS error messages
+document.querySelectorAll('.error-short.expandable').forEach(el => {
+  el.addEventListener('click', () => {
+    el.classList.toggle('expanded');
+    const fullEl = el.nextElementSibling;
+    if (fullEl) fullEl.classList.toggle('visible');
   });
 });
 

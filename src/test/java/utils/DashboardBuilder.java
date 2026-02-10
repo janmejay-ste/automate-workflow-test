@@ -20,11 +20,15 @@ public final class DashboardBuilder {
   private DashboardBuilder() {
   }
 
+  public static void main(String[] args) {
+    write();
+  }
+
   public static void write() {
     try {
       // Read data from files
       JSONObject snapshot = readSnapshot();
-      List<int[]> history = readHistory();
+      List<TrendDataWriter.RunData> history = TrendDataWriter.readFullHistory();
       List<TestResult> testResults = readTestResults();
 
       // Build HTML with embedded data
@@ -50,31 +54,6 @@ public final class DashboardBuilder {
       LOG.debug("Could not read snapshot: {}", e.getMessage());
     }
     return new JSONObject();
-  }
-
-  private static List<int[]> readHistory() {
-    List<int[]> history = new ArrayList<>();
-    try {
-      Path p = Paths.get(REPORTS_DIR, "health_history.csv");
-      if (Files.exists(p)) {
-        List<String> lines = Files.readAllLines(p);
-        for (int i = 1; i < lines.size(); i++) { // Skip header
-          String line = lines.get(i).trim();
-          if (line.isEmpty())
-            continue;
-          String[] parts = line.split(",");
-          if (parts.length >= 2) {
-            try {
-              history.add(new int[] { Integer.parseInt(parts[0]), Integer.parseInt(parts[1]) });
-            } catch (NumberFormatException ignored) {
-            }
-          }
-        }
-      }
-    } catch (Exception e) {
-      LOG.debug("Could not read history: {}", e.getMessage());
-    }
-    return history;
   }
 
   private static List<TestResult> readTestResults() {
@@ -124,11 +103,12 @@ public final class DashboardBuilder {
     if (timestamp <= 0)
       return "N/A";
     return DateTimeFormatter.ofPattern("MMM dd, yyyy HH:mm:ss")
-        .withZone(ZoneId.systemDefault())
+        .withZone(ZoneId.of("Asia/Kolkata"))
         .format(Instant.ofEpochMilli(timestamp));
   }
 
-  private static String buildHtml(JSONObject snapshot, List<int[]> history, List<TestResult> testResults) {
+  private static String buildHtml(JSONObject snapshot, List<TrendDataWriter.RunData> history,
+      List<TestResult> testResults) {
     // Extract data from snapshot
     int score = getInt(snapshot, "score", 0);
     int warningCount = getInt(snapshot, "warningCount", 0);
@@ -140,18 +120,23 @@ public final class DashboardBuilder {
     String status = getString(snapshot, "status", "UNKNOWN");
 
     // Get slow pages
-    JSONArray slowPagesDetails = (JSONArray) snapshot.get("slowPagesDetails");
+    JSONArray slowPages = (JSONArray) snapshot.get("slowPages");
     StringBuilder slowPagesHtml = new StringBuilder();
-    if (slowPagesDetails != null && !slowPagesDetails.isEmpty()) {
-      for (Object item : slowPagesDetails) {
-        String detail = item.toString();
-        String[] parts = detail.split(" = ");
-        String page = parts[0];
-        String timeStr = parts.length > 1 ? parts[1].replace(" ms", "") : "0";
+    if (slowPages != null && !slowPages.isEmpty()) {
+      for (Object item : slowPages) {
+        String page = "Unknown";
         long time = 0;
-        try {
-          time = Long.parseLong(timeStr);
-        } catch (Exception ignored) {
+        if (item instanceof JSONObject) {
+          JSONObject sp = (JSONObject) item;
+          page = getString(sp, "context", "Unknown");
+          try {
+            Object t = sp.get("loadTimeMs");
+            if (t instanceof Number)
+              time = ((Number) t).longValue();
+            else if (t != null)
+              time = Long.parseLong(t.toString());
+          } catch (Exception ignored) {
+          }
         }
         String severity = time > 20000 ? "critical" : time > 15000 ? "high" : time > 10000 ? "medium" : "low";
         slowPagesHtml.append(String.format(
@@ -167,22 +152,56 @@ public final class DashboardBuilder {
     JSONArray jsErrors = (JSONArray) snapshot.get("jsErrors");
     StringBuilder jsErrorsHtml = new StringBuilder();
     if (jsErrors != null && !jsErrors.isEmpty()) {
-      int idx = 0;
       for (Object item : jsErrors) {
-        String error = item.toString();
-        String[] parts = error.split(" → ", 2);
-        String source = parts.length > 0 ? parts[0] : "Unknown";
-        String message = parts.length > 1 ? parts[1] : error;
-        // Truncate long messages
-        String shortMsg = message.length() > 100 ? message.substring(0, 100) + "..." : message;
+        String source = "Unknown";
+        String message = "";
+        double penalty = 0;
+
+        if (item instanceof JSONObject) {
+          JSONObject jo = (JSONObject) item;
+          source = getString(jo, "context", "Unknown");
+          message = getString(jo, "message", "");
+          try {
+            Object p = jo.get("penalty");
+            if (p instanceof Number)
+              penalty = ((Number) p).doubleValue();
+            else if (p != null)
+              penalty = Double.parseDouble(p.toString());
+          } catch (Exception ignored) {
+          }
+        } else {
+          String error = item.toString();
+          String[] parts = error.split(" → ", 2);
+          source = parts.length > 0 ? parts[0] : "Unknown";
+          message = parts.length > 1 ? parts[1] : error;
+        }
+
+        String severity;
+        if (penalty >= 12)
+          severity = "critical";
+        else if (penalty >= 8)
+          severity = "high";
+        else if (penalty >= 4)
+          severity = "medium";
+        else
+          severity = "low";
+
+        // Truncate long messages; click to expand full error
+        String shortMsg = message.length() > 80 ? message.substring(0, 80) + "..." : message;
+        boolean truncated = message.length() > 80;
         jsErrorsHtml.append(String.format(
-            "<tr class=\"js-error-row\"><td>%s</td><td class=\"error-msg\" title=\"%s\">%s</td></tr>\n",
-            escapeHtml(source), escapeHtml(message), escapeHtml(shortMsg)));
-        idx++;
+            "<tr class=\"js-error-row\" data-severity=\"%s\"><td>%s</td><td><span class=\"badge badge-%s\">%s</span></td><td class=\"error-msg\">"
+                +
+                "<div class=\"error-short%s\">%s</div>" +
+                "<div class=\"error-full\">%s</div></td></tr>\n",
+            severity, escapeHtml(source), severity, capitalize(severity),
+            truncated ? " expandable" : "",
+            escapeHtml(shortMsg),
+            escapeHtml(message)));
       }
     } else {
       jsErrorsHtml
-          .append("<tr><td colspan=\"2\" style=\"text-align:center;color:#94a3b8;\">No JS errors detected</td></tr>");
+          .append("<tr><td colspan=\"3\" style=\"text-align:center;color:#94a3b8;\">No JS errors detected</td></tr>");
     }
 
     // Get warnings
@@ -214,7 +233,7 @@ public final class DashboardBuilder {
     }
 
     // Get fallback details
-    JSONArray fallbackDetails = (JSONArray) snapshot.get("fallbackDetails");
+    JSONArray fallbackDetails = (JSONArray) snapshot.get("fallbacks");
     StringBuilder fallbackHtml = new StringBuilder();
     if (fallbackDetails != null && !fallbackDetails.isEmpty()) {
       for (Object item : fallbackDetails) {
@@ -231,26 +250,54 @@ public final class DashboardBuilder {
           .append("<tr><td colspan=\"2\" style=\"text-align:center;color:#94a3b8;\">No fallbacks used</td></tr>");
     }
 
-    // Build chart data - limit to last 15 runs for clarity
-    int maxRuns = 15;
+    // Build chart data - limit to last 20 runs for clarity
+    int maxRuns = 20;
     int startIdx = Math.max(0, history.size() - maxRuns);
-    List<int[]> recentHistory = history.subList(startIdx, history.size());
+    List<TrendDataWriter.RunData> recentHistory = history.subList(startIdx, history.size());
 
     StringBuilder chartLabels = new StringBuilder("[");
-    StringBuilder chartData = new StringBuilder("[");
+    StringBuilder chartScores = new StringBuilder("[");
+    StringBuilder chartPenalties = new StringBuilder("[");
+    StringBuilder chartStatuses = new StringBuilder("[");
+    StringBuilder chartJsErrors = new StringBuilder("[");
+    StringBuilder chartFailedTests = new StringBuilder("[");
     int totalScore = 0;
+    int healthyCount = 0, minorCount = 0, degradedCount = 0, atRiskCount = 0, criticalCount = 0;
     for (int i = 0; i < recentHistory.size(); i++) {
+      TrendDataWriter.RunData rd = recentHistory.get(i);
       if (i > 0) {
         chartLabels.append(",");
-        chartData.append(",");
+        chartScores.append(",");
+        chartPenalties.append(",");
+        chartStatuses.append(",");
+        chartJsErrors.append(",");
+        chartFailedTests.append(",");
       }
-      chartLabels.append("\"Run #").append(recentHistory.get(i)[0]).append("\"");
-      int runScore = recentHistory.get(i)[1];
-      chartData.append(runScore);
-      totalScore += runScore;
+      chartLabels.append("\"Run #").append(rd.run).append("\"");
+      chartScores.append(rd.score);
+      chartPenalties.append(rd.penalty);
+      chartStatuses.append("\"").append(rd.status).append("\"");
+      chartJsErrors.append(rd.jsErrors >= 0 ? rd.jsErrors : "null");
+      chartFailedTests.append(rd.failedTests >= 0 ? rd.failedTests : "null");
+      totalScore += rd.score;
+
+      if (rd.score >= 90)
+        healthyCount++;
+      else if (rd.score >= 75)
+        minorCount++;
+      else if (rd.score >= 60)
+        degradedCount++;
+      else if (rd.score >= 40)
+        atRiskCount++;
+      else
+        criticalCount++;
     }
     chartLabels.append("]");
-    chartData.append("]");
+    chartScores.append("]");
+    chartPenalties.append("]");
+    chartStatuses.append("]");
+    chartJsErrors.append("]");
+    chartFailedTests.append("]");
     int avgScore = recentHistory.isEmpty() ? 0 : totalScore / recentHistory.size();
 
     // Count test results
@@ -278,10 +325,37 @@ public final class DashboardBuilder {
           "<tr><td colspan=\"4\" style=\"text-align:center;color:#94a3b8;\">No test results available</td></tr>");
     }
 
-    // Determine score color and status badge
-    String scoreColor = score >= 80 ? "#10b981" : score >= 50 ? "#f59e0b" : "#ef4444";
-    String statusBadgeClass = "AT_RISK".equals(status) ? "badge-warning"
-        : "CRITICAL".equals(status) ? "badge-critical" : "badge-healthy";
+    // Determine score color and status badge (5-tier)
+    String scoreColor;
+    if (score >= 90)
+      scoreColor = "#10b981"; // green (HEALTHY)
+    else if (score >= 75)
+      scoreColor = "#3b82f6"; // blue (MINOR)
+    else if (score >= 60)
+      scoreColor = "#f59e0b"; // amber (DEGRADED)
+    else if (score >= 40)
+      scoreColor = "#f97316"; // orange (AT_RISK)
+    else
+      scoreColor = "#ef4444"; // red (CRITICAL)
+
+    String statusBadgeClass;
+    switch (status) {
+      case "HEALTHY":
+        statusBadgeClass = "badge-healthy";
+        break;
+      case "MINOR":
+        statusBadgeClass = "badge-minor";
+        break;
+      case "DEGRADED":
+        statusBadgeClass = "badge-degraded";
+        break;
+      case "AT_RISK":
+        statusBadgeClass = "badge-warning";
+        break;
+      default:
+        statusBadgeClass = "badge-critical";
+        break;
+    }
 
     return TEMPLATE
         .replace("{{SCORE}}", String.valueOf(score))
@@ -308,8 +382,17 @@ public final class DashboardBuilder {
                 : "<tr><td colspan=\"2\" style=\"text-align:center;color:#94a3b8;\">No low severity warnings</td></tr>")
         .replace("{{FALLBACK_ROWS}}", fallbackHtml.toString())
         .replace("{{CHART_LABELS}}", chartLabels.toString())
-        .replace("{{CHART_DATA}}", chartData.toString())
+        .replace("{{CHART_DATA}}", chartScores.toString())
+        .replace("{{CHART_PENALTIES}}", chartPenalties.toString())
+        .replace("{{CHART_STATUSES}}", chartStatuses.toString())
+        .replace("{{CHART_JS_ERRORS}}", chartJsErrors.toString())
+        .replace("{{CHART_FAILED_TESTS}}", chartFailedTests.toString())
         .replace("{{AVG_SCORE}}", String.valueOf(avgScore))
+        .replace("{{HEALTHY_RUN_COUNT}}", String.valueOf(healthyCount))
+        .replace("{{MINOR_COUNT}}", String.valueOf(minorCount))
+        .replace("{{DEGRADED_COUNT}}", String.valueOf(degradedCount))
+        .replace("{{AT_RISK_COUNT}}", String.valueOf(atRiskCount))
+        .replace("{{CRITICAL_COUNT}}", String.valueOf(criticalCount))
         .replace("{{TEST_ROWS}}", testRowsHtml.toString())
         .replace("{{PASSED_STAT}}", String.valueOf(passed))
         .replace("{{FAILED_STAT}}", String.valueOf(failed));
@@ -357,6 +440,7 @@ public final class DashboardBuilder {
       <title>Health Dashboard</title>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
       <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
       <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body {
@@ -431,7 +515,9 @@ public final class DashboardBuilder {
         letter-spacing: 0.5px;
       }
       .badge-healthy { background: #dcfce7; color: #16a34a; }
-      .badge-warning { background: #fef3c7; color: #d97706; }
+      .badge-minor { background: #dbeafe; color: #2563eb; }
+      .badge-degraded { background: #fef3c7; color: #d97706; }
+      .badge-warning { background: #ffedd5; color: #ea580c; }
       .badge-critical { background: #fee2e2; color: #dc2626; }
 
       /* Stats Grid */
@@ -631,6 +717,42 @@ public final class DashboardBuilder {
         font-size: 12px;
         color: #64748b;
       }
+      .error-short.expandable {
+        cursor: pointer;
+        color: #3b82f6;
+      }
+      .error-short.expandable::after {
+        content: ' ▶ click to expand';
+        font-size: 10px;
+        color: #94a3b8;
+        font-style: italic;
+      }
+      .error-full {
+        display: none;
+        margin-top: 8px;
+        padding: 10px 14px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        word-break: break-all;
+        white-space: pre-wrap;
+        font-size: 12px;
+        color: #334155;
+        line-height: 1.5;
+      }
+      .error-full.visible {
+        display: block;
+      }
+      .error-short.expandable.expanded::after {
+        content: ' ▼ click to collapse';
+      }
+
+      /* Pulsing latest-run marker */
+      @keyframes pulse-ring {
+        0% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.6); }
+        70% { box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+      }
 
       /* Badges */
       .badge {
@@ -650,13 +772,55 @@ public final class DashboardBuilder {
       .badge-fail { background: #fee2e2; color: #dc2626; }
 
       /* Chart */
-      .chart-container { height: 300px; position: relative; }
+      .chart-container { height: 360px; position: relative; }
+      .chart-container-sm { height: 280px; position: relative; }
+
+      /* Trend Stats Bar */
+      .trend-stats {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .trend-stat {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        font-weight: 500;
+        color: #64748b;
+      }
+      .trend-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        display: inline-block;
+      }
+      .trend-dot-healthy { background: #10b981; }
+      .trend-dot-minor { background: #3b82f6; }
+      .trend-dot-degraded { background: #f59e0b; }
+      .trend-dot-atrisk { background: #f97316; }
+      .trend-dot-critical { background: #ef4444; }
+      .trend-divider {
+        width: 1px;
+        height: 20px;
+        background: #e2e8f0;
+      }
 
       /* Two Column Layout */
       .two-col {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 20px;
+      }
+
+      /* Three Column Layout for charts */
+      .chart-row {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 20px;
+        margin-bottom: 20px;
       }
 
       /* Runs Header */
@@ -674,6 +838,7 @@ public final class DashboardBuilder {
       @media (max-width: 1200px) {
         .stats-grid { grid-template-columns: repeat(3, 1fr); }
         .two-col { grid-template-columns: 1fr; }
+        .chart-row { grid-template-columns: 1fr; }
       }
       @media (max-width: 768px) {
         .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -741,13 +906,39 @@ public final class DashboardBuilder {
           </div>
         </div>
 
-        <!-- Health Score Trend -->
-        <div class="section">
-          <div class="section-header">
-            <div class="section-title">📈 Health Score Trend</div>
+        <!-- Health Score Trend + Penalty Breakdown -->
+        <div class="chart-row">
+          <div class="section">
+            <div class="section-header">
+              <div class="section-title">📈 Health Score Trend</div>
+              <div class="trend-stats">
+                <span class="trend-stat"><span class="trend-dot trend-dot-healthy"></span>Healthy: {{HEALTHY_RUN_COUNT}}</span>
+                <span class="trend-divider"></span>
+                <span class="trend-stat"><span class="trend-dot trend-dot-minor"></span>Minor: {{MINOR_COUNT}}</span>
+                <span class="trend-divider"></span>
+                <span class="trend-stat"><span class="trend-dot trend-dot-degraded"></span>Degraded: {{DEGRADED_COUNT}}</span>
+                <span class="trend-divider"></span>
+                <span class="trend-stat"><span class="trend-dot trend-dot-atrisk"></span>At Risk: {{AT_RISK_COUNT}}</span>
+                <span class="trend-divider"></span>
+                <span class="trend-stat"><span class="trend-dot trend-dot-critical"></span>Critical: {{CRITICAL_COUNT}}</span>
+              </div>
+            </div>
+            <div class="chart-container">
+              <canvas id="trendChart"></canvas>
+            </div>
           </div>
-          <div class="chart-container">
-            <canvas id="trendChart"></canvas>
+          <div class="section">
+            <div class="section-header">
+              <div class="section-title">🔍 Penalty Breakdown</div>
+            </div>
+            <div class="chart-container-sm">
+              <canvas id="penaltyChart"></canvas>
+            </div>
+            <div style="text-align:center;margin-top:12px;">
+              <span style="font-size:32px;font-weight:700;color:{{SCORE_COLOR}};">{{SCORE}}</span>
+              <span style="font-size:14px;color:#94a3b8;">/100</span>
+              <div style="font-size:12px;color:#64748b;margin-top:4px;">Total Penalty: {{PENALTY_POINTS}} pts</div>
+            </div>
           </div>
         </div>
 
@@ -777,15 +968,20 @@ public final class DashboardBuilder {
           <!-- JS Errors -->
           <div class="section">
             <div class="section-header collapsible-header" data-target="jsErrorsContent">
-              <div class="section-title">⚠️ JS Errors <span class="count">{{JS_ERROR_COUNT}}</span></div>
+              <div class="section-title">🛑 JS Errors <span class="count">{{JS_ERROR_COUNT}}</span></div>
+              <div class="filter-controls">
+                <button class="filter-btn active" data-filter="all" data-table="jsErrors">All</button>
+                <button class="filter-btn" data-filter="critical" data-table="jsErrors">Critical</button>
+                <button class="filter-btn" data-filter="high" data-table="jsErrors">High</button>
+              </div>
             </div>
             <div class="collapsible-content" id="jsErrorsContent">
-              <table>
+              <table id="jsErrorsTable">
                 <thead>
-                  <tr><th>Source</th><th>Error Message</th></tr>
+                  <tr><th style="width:150px;">Source</th><th style="width:100px;">Severity</th><th>Error Message</th></tr>
                 </thead>
                 <tbody>
-      {{JS_ERRORS_ROWS}}
+                  {{JS_ERRORS_ROWS}}
                 </tbody>
               </table>
             </div>
@@ -866,21 +1062,37 @@ public final class DashboardBuilder {
       </div>
 
       <script>
-      // Chart
+      // === DATA ===
       const labels = {{CHART_LABELS}};
-      const data = {{CHART_DATA}};
+      const scoreData = {{CHART_DATA}};
+      const penaltyData = {{CHART_PENALTIES}};
+      const statusData = {{CHART_STATUSES}};
+      const jsErrorData = {{CHART_JS_ERRORS}};
+      const failedTestData = {{CHART_FAILED_TESTS}};
       const avgScore = {{AVG_SCORE}};
-      const threshold = 80;
+      const threshold = 90;
+      const currentPenalty = {{PENALTY_POINTS}};
+      const currentJsErrors = {{JS_ERROR_COUNT}};
+      const currentSlowPages = {{SLOW_PAGES_COUNT}};
+      const currentFallbacks = {{FALLBACK_COUNT}};
+      const currentWarnings = {{WARNING_COUNT}};
 
+      // === TREND CHART ===
       if (labels.length > 0) {
         const ctx = document.getElementById('trendChart').getContext('2d');
-        const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-        gradient.addColorStop(0, 'rgba(16, 185, 129, 0.3)');
-        gradient.addColorStop(1, 'rgba(16, 185, 129, 0.0)');
 
-        // Create threshold and average data arrays
-        const thresholdData = labels.map(() => threshold);
-        const avgData = labels.map(() => avgScore);
+        // Dynamic point colors based on score
+        const lastIdx = scoreData.length - 1;
+        const pointColors = scoreData.map((s, i) => i === lastIdx ? '#6366f1' : s >= 90 ? '#10b981' : s >= 75 ? '#3b82f6' : s >= 60 ? '#f59e0b' : s >= 40 ? '#f97316' : '#ef4444');
+        const pointBorderColors = scoreData.map((s, i) => i === lastIdx ? '#4338ca' : s >= 90 ? '#059669' : s >= 75 ? '#2563eb' : s >= 60 ? '#d97706' : s >= 40 ? '#ea580c' : '#dc2626');
+        const pointRadii = scoreData.map((s, i) => i === lastIdx ? 10 : 5);
+        const pointStyles = scoreData.map((s, i) => i === lastIdx ? 'rectRot' : 'circle');
+        const pointBorderWidths = scoreData.map((s, i) => i === lastIdx ? 3 : 2);
+
+        // Gradient fill
+        const gradient = ctx.createLinearGradient(0, 0, 0, 360);
+        gradient.addColorStop(0, 'rgba(99, 102, 241, 0.15)');
+        gradient.addColorStop(1, 'rgba(99, 102, 241, 0.0)');
 
         new Chart(ctx, {
           type: 'line',
@@ -889,22 +1101,24 @@ public final class DashboardBuilder {
             datasets: [
               {
                 label: 'Health Score',
-                data: data,
-                borderColor: '#10b981',
+                data: scoreData,
+                borderColor: '#6366f1',
                 backgroundColor: gradient,
                 fill: true,
-                tension: 0.4,
-                pointRadius: 5,
-                pointBackgroundColor: '#10b981',
-                pointBorderColor: '#fff',
-                pointBorderWidth: 2,
+                tension: 0.3,
+                pointRadius: pointRadii,
+                pointBackgroundColor: pointColors,
+                pointBorderColor: pointBorderColors,
+                pointBorderWidth: pointBorderWidths,
+                pointStyle: pointStyles,
+                pointHoverRadius: 10,
                 borderWidth: 3,
                 order: 1
               },
               {
-                label: 'Healthy Threshold (80)',
-                data: thresholdData,
-                borderColor: '#22c55e',
+                label: 'Healthy Threshold (90)',
+                data: labels.map(() => threshold),
+                borderColor: 'rgba(34, 197, 94, 0.5)',
                 borderWidth: 2,
                 borderDash: [8, 4],
                 pointRadius: 0,
@@ -913,8 +1127,8 @@ public final class DashboardBuilder {
               },
               {
                 label: 'Average (' + avgScore + ')',
-                data: avgData,
-                borderColor: '#3b82f6',
+                data: labels.map(() => avgScore),
+                borderColor: 'rgba(59, 130, 246, 0.5)',
                 borderWidth: 2,
                 borderDash: [4, 4],
                 pointRadius: 0,
@@ -926,24 +1140,180 @@ public final class DashboardBuilder {
           options: {
             responsive: true,
             maintainAspectRatio: false,
+            interaction: {
+              mode: 'index',
+              intersect: false
+            },
             plugins: {
               legend: {
                 display: true,
                 position: 'top',
                 labels: {
                   usePointStyle: true,
-                  padding: 20,
-                  font: { size: 12 }
+                  padding: 16,
+                  font: { size: 12 },
+                  filter: function(item) {
+                    return item.datasetIndex <= 2;
+                  }
                 }
               },
               tooltip: {
                 backgroundColor: '#1e293b',
                 titleColor: '#fff',
-                bodyColor: '#fff',
-                padding: 12,
-                cornerRadius: 8,
+                bodyColor: '#e2e8f0',
+                padding: 16,
+                cornerRadius: 10,
+                titleFont: { size: 14, weight: '600' },
+                bodyFont: { size: 12 },
+                bodySpacing: 6,
+                displayColors: false,
                 filter: function(tooltipItem) {
                   return tooltipItem.datasetIndex === 0;
+                },
+                callbacks: {
+                  title: function(items) {
+                    return items[0].label;
+                  },
+                  label: function(context) {
+                    const idx = context.dataIndex;
+                    const score = scoreData[idx];
+                    const penalty = penaltyData[idx];
+                    const status = statusData[idx];
+                    const jsErr = jsErrorData[idx];
+                    const failedT = failedTestData[idx];
+                    const statusLabel = status.replace('_', ' ');
+                    const lines = [];
+                    lines.push('Score: ' + score + ' / 100');
+                    lines.push('Status: ' + statusLabel);
+                    lines.push('Penalty: ' + penalty + ' pts');
+                    if (jsErr !== null && jsErr >= 0) lines.push('JS Errors: ' + jsErr);
+                    if (failedT !== null && failedT >= 0) lines.push('Failed Tests: ' + failedT);
+                    if (score === 0) lines.push('⚠ Critical: Score bottomed out');
+                    return lines;
+                  },
+                  afterLabel: function(context) {
+                    const idx = context.dataIndex;
+                    if (idx > 0) {
+                      const diff = scoreData[idx] - scoreData[idx - 1];
+                      if (diff !== 0) {
+                        const arrow = diff > 0 ? '↑' : '↓';
+                        const color = diff > 0 ? '🟢' : '🔴';
+                        return color + ' ' + arrow + ' ' + Math.abs(diff) + ' from previous run';
+                      }
+                    }
+                    return '';
+                  }
+                }
+              },
+              annotation: {
+                annotations: {
+                  healthyZone: {
+                    type: 'box',
+                    yMin: 90,
+                    yMax: 100,
+                    backgroundColor: 'rgba(16, 185, 129, 0.08)',
+                    borderWidth: 0,
+                    label: {
+                      display: true,
+                      content: 'HEALTHY',
+                      position: {x: 'end', y: 'center'},
+                      color: 'rgba(16, 185, 129, 0.5)',
+                      font: { size: 10, weight: '600' },
+                      padding: 3
+                    }
+                  },
+                  minorZone: {
+                    type: 'box',
+                    yMin: 75,
+                    yMax: 90,
+                    backgroundColor: 'rgba(59, 130, 246, 0.05)',
+                    borderWidth: 0,
+                    label: {
+                      display: true,
+                      content: 'MINOR',
+                      position: {x: 'end', y: 'center'},
+                      color: 'rgba(59, 130, 246, 0.4)',
+                      font: { size: 10, weight: '600' },
+                      padding: 3
+                    }
+                  },
+                  degradedZone: {
+                    type: 'box',
+                    yMin: 60,
+                    yMax: 75,
+                    backgroundColor: 'rgba(245, 158, 11, 0.05)',
+                    borderWidth: 0,
+                    label: {
+                      display: true,
+                      content: 'DEGRADED',
+                      position: {x: 'end', y: 'center'},
+                      color: 'rgba(245, 158, 11, 0.4)',
+                      font: { size: 10, weight: '600' },
+                      padding: 3
+                    }
+                  },
+                  atRiskZone: {
+                    type: 'box',
+                    yMin: 40,
+                    yMax: 60,
+                    backgroundColor: 'rgba(249, 115, 22, 0.05)',
+                    borderWidth: 0,
+                    label: {
+                      display: true,
+                      content: 'AT RISK',
+                      position: {x: 'end', y: 'center'},
+                      color: 'rgba(249, 115, 22, 0.4)',
+                      font: { size: 10, weight: '600' },
+                      padding: 3
+                    }
+                  },
+                  criticalZone: {
+                    type: 'box',
+                    yMin: 0,
+                    yMax: 40,
+                    backgroundColor: 'rgba(239, 68, 68, 0.05)',
+                    borderWidth: 0,
+                    label: {
+                      display: true,
+                      content: 'CRITICAL',
+                      position: {x: 'end', y: 'center'},
+                      color: 'rgba(239, 68, 68, 0.35)',
+                      font: { size: 10, weight: '600' },
+                      padding: 3
+                    }
+                  },
+                  healthyLine: {
+                    type: 'line',
+                    yMin: 90,
+                    yMax: 90,
+                    borderColor: 'rgba(16, 185, 129, 0.3)',
+                    borderWidth: 1,
+                    borderDash: [6, 3]
+                  },
+                  minorLine: {
+                    type: 'line',
+                    yMin: 75,
+                    yMax: 75,
+                    borderColor: 'rgba(59, 130, 246, 0.3)',
+                    borderWidth: 1,
+                    borderDash: [6, 3]
+                  },
+                  degradedLine: {
+                    type: 'line',
+                    yMin: 60,
+                    yMax: 60,
+                    borderColor: 'rgba(245, 158, 11, 0.3)',
+                    borderWidth: 1,
+                    borderDash: [6, 3]
+                  },
+                  atRiskLine: {
+                    type: 'line',
+                    yMin: 40,
+                    yMax: 40,
+                    borderColor: 'rgba(249, 115, 22, 0.3)',
+                    borderWidth: 1,
+                    borderDash: [6, 3]
+                  }
                 }
               }
             },
@@ -951,8 +1321,17 @@ public final class DashboardBuilder {
               y: {
                 min: 0,
                 max: 100,
-                grid: { color: '#f1f5f9' },
-                ticks: { font: { size: 12 } }
+                grid: { color: 'rgba(241, 245, 249, 0.8)' },
+                ticks: {
+                  font: { size: 12 },
+                  callback: function(value) {
+                    if (value === 90) return '90 ─ Healthy';
+                    if (value === 75) return '75 ─ Minor';
+                    if (value === 60) return '60 ─ Degraded';
+                    if (value === 40) return '40 ─ At Risk';
+                    return value;
+                  }
+                }
               },
               x: {
                 grid: { display: false },
@@ -962,6 +1341,71 @@ public final class DashboardBuilder {
           }
         });
       }
+
+      // === PENALTY BREAKDOWN DONUT ===
+      (function() {
+        const penaltyCtx = document.getElementById('penaltyChart').getContext('2d');
+        // Estimate penalty source breakdown from available snapshot data
+        const jsErrPenalty = currentJsErrors * 10;  // ~10 pts per JS error
+        const slowPagePenalty = currentSlowPages * 5; // ~5 pts per slow page
+        const fallbackPenalty = currentFallbacks * 3; // ~3 pts per fallback
+        const otherPenalty = Math.max(0, currentPenalty - jsErrPenalty - slowPagePenalty - fallbackPenalty);
+        const remaining = Math.max(0, 100 - currentPenalty);
+
+        new Chart(penaltyCtx, {
+          type: 'doughnut',
+          data: {
+            labels: ['JS Errors', 'Slow Pages', 'Fallbacks', 'Other Warnings', 'Healthy'],
+            datasets: [{
+              data: [jsErrPenalty, slowPagePenalty, fallbackPenalty, otherPenalty, remaining],
+              backgroundColor: [
+                'rgba(239, 68, 68, 0.8)',
+                'rgba(59, 130, 246, 0.8)',
+                'rgba(245, 158, 11, 0.8)',
+                'rgba(148, 163, 184, 0.6)',
+                'rgba(16, 185, 129, 0.8)'
+              ],
+              borderColor: '#fff',
+              borderWidth: 3,
+              hoverOffset: 6
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '65%',
+            plugins: {
+              legend: {
+                display: true,
+                position: 'bottom',
+                labels: {
+                  usePointStyle: true,
+                  padding: 12,
+                  font: { size: 11 },
+                  filter: function(item) {
+                    return item.raw > 0;
+                  }
+                }
+              },
+              tooltip: {
+                backgroundColor: '#1e293b',
+                titleColor: '#fff',
+                bodyColor: '#e2e8f0',
+                padding: 12,
+                cornerRadius: 8,
+                callbacks: {
+                  label: function(context) {
+                    const val = context.raw;
+                    return context.label + ': ' + val + ' pts';
+                  }
+                }
+              }
+            }
+          }
+        });
+      })();
+
+      // === INTERACTIVITY ===
 
       // Collapsible sections
       document.querySelectorAll('.collapsible-header').forEach(header => {
@@ -987,6 +1431,8 @@ public final class DashboardBuilder {
           // Apply filter
           if (table === 'slowPages') {
             filterTable('slowPagesTable', 'data-severity', filter);
+          } else if (table === 'jsErrors') {
+            filterTable('jsErrorsTable', 'data-severity', filter);
           } else if (table === 'tests') {
             filterTable('testsTable', 'data-status', filter);
           } else if (table === 'warnings') {
@@ -1015,6 +1461,15 @@ public final class DashboardBuilder {
         document.querySelectorAll('#testsTable tbody tr').forEach(row => {
           const text = row.textContent.toLowerCase();
           row.style.display = text.includes(query) ? '' : 'none';
+        });
+      });
+
+      // Expandable JS error messages
+      document.querySelectorAll('.error-short.expandable').forEach(el => {
+        el.addEventListener('click', () => {
+          el.classList.toggle('expanded');
+          const fullEl = el.nextElementSibling;
+          if (fullEl) fullEl.classList.toggle('visible');
         });
       });
 

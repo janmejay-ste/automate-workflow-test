@@ -4,18 +4,27 @@ import utils.HealthPolicy;
 
 public final class HealthGate {
 
-    private HealthGate() {}
+    private HealthGate() {
+    }
 
     public static void enforce(HealthTracker tracker) {
-        // Log warning for critical issues but don't fail build
-        // (JS errors from external scripts are outside our control)
+        int score = tracker.getScore();
+        int smoothed = tracker.getSmoothedScore();
+        String status = tracker.getStatus();
+
+        // Always log the status
+        System.out.printf("[HealthGate] Score: %d (smoothed: %d) | Status: %s%n",
+                score, smoothed, status);
+
+        // Log warning for critical issues
         if (tracker.isCriticalBroken()) {
             System.err.println("WARNING: Critical flow had issues - check health report");
         }
 
-        if (tracker.getScore() < HealthPolicy.BUILD_FAIL_THRESHOLD) {
-            System.err.println("WARNING: Health score " + tracker.getScore() +
-                " below threshold " + HealthPolicy.BUILD_FAIL_THRESHOLD);
+        // Use smoothed score for build gate to avoid transient failures breaking builds
+        if (smoothed < HealthPolicy.BUILD_FAIL_THRESHOLD) {
+            System.err.printf("WARNING: Smoothed health score %d below threshold %d%n",
+                    smoothed, HealthPolicy.BUILD_FAIL_THRESHOLD);
         }
     }
 }

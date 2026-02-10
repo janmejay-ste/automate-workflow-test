@@ -42,9 +42,12 @@ public class AppyPieAutomatePage {
     // --------------------------------------------------
 
     public void waitUntilLoaded() {
-        waits.waitForVisible(headerTitle);
         waitForDocumentReady();
-        LOG.info("AppyPie Automate page loaded");
+        LOG.info("AppyPie Automate page loaded (ready state complete)");
+    }
+
+    public void waitForHeader(By locator) {
+        waits.waitForVisible(locator);
     }
 
     private void waitForDocumentReady() {

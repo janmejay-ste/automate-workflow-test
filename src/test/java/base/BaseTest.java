@@ -6,6 +6,7 @@ import org.openqa.selenium.chrome.ChromeOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.ITestResult;
+import org.testng.Reporter;
 import org.testng.annotations.*;
 
 import utils.ConsoleLogFilter;
@@ -14,6 +15,7 @@ import utils.DashboardLauncher;
 import utils.TrendExporter;
 import utils.health.HealthGate;
 import utils.health.HealthTracker;
+import utils.analytics.TestAnalyticsLogger;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -44,6 +46,15 @@ public abstract class BaseTest {
             driver = createDriver();
             driver.manage().window().maximize();
         }
+
+        // Analytics: Test Started
+        ITestResult result = Reporter.getCurrentTestResult();
+        if (result != null && result.getMethod() != null) {
+            TestAnalyticsLogger.get().testStarted(
+                    this.getClass().getSimpleName(),
+                    result.getMethod().getMethodName());
+        }
+
         driver.get(BASE_URL); // Navigate to ensure clean starting state for each test
     }
 
@@ -51,8 +62,27 @@ public abstract class BaseTest {
 
     @AfterMethod(alwaysRun = true)
     public void afterMethod(ITestResult result) {
+        String testClass = result.getTestClass().getRealClass().getSimpleName();
+        String testMethod = result.getName();
+
         if (result.getStatus() == ITestResult.FAILURE) {
             captureFailureArtifacts(result);
+
+            // Analytics: Test Failed
+            TestAnalyticsLogger.get().testFailed(testClass, testMethod, result.getThrowable());
+
+            // Record in HealthTracker as well
+            HealthTracker.get().recordTestFailure(
+                    testClass + "." + testMethod,
+                    result.getThrowable().getMessage(),
+                    null // Stack trace already captured in logger
+            );
+        } else if (result.getStatus() == ITestResult.SUCCESS) {
+            // Analytics: Test Passed
+            TestAnalyticsLogger.get().testPassed(testClass, testMethod);
+        } else if (result.getStatus() == ITestResult.SKIP) {
+            // Analytics: Test Skipped
+            TestAnalyticsLogger.get().testSkipped(testClass, testMethod, "Skipped by TestNG");
         }
 
         try {
@@ -71,6 +101,10 @@ public abstract class BaseTest {
         try {
             HealthTracker tracker = HealthTracker.get();
             int score = tracker.getScore();
+
+            // Generate analytics reports
+            TestAnalyticsLogger.get().generateReports();
+
             TrendExporter.updateTrend(score);
             tracker.printReport();
             DashboardBuilder.write(); // Generate updated dashboard HTML
@@ -94,10 +128,10 @@ public abstract class BaseTest {
 
         boolean headless = Boolean.parseBoolean(
                 // for headless test
-                System.getProperty("headless", "true"));
+                // System.getProperty("headless", "true"));
 
-        // for local test
-        // System.getProperty("headless", "false"));
+                // for local test
+                System.getProperty("headless", "false"));
 
         if (headless) {
             options.addArguments("--headless=new");

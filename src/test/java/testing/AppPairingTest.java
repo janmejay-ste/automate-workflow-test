@@ -94,7 +94,9 @@ public class AppPairingTest extends BaseTest {
                 By.cssSelector("input#appConnectName, input[placeholder*='Search Apps']")));
         searchInput.clear();
         searchInput.sendKeys(firstApp);
-        sleep(1500);
+        // Reduced debounce wait for faster search
+        new WebDriverWait(driver, Duration.ofSeconds(5))
+                .until(d -> driver.findElements(By.xpath("//*[contains(text(),'" + firstApp + "')]")).size() > 0);
         LOG.info("Step 2: Searched for {}", firstApp);
 
         // Step 3: Click on the first app from results
@@ -107,7 +109,6 @@ public class AppPairingTest extends BaseTest {
 
         // Step 4: Click the "+" icon to add second app
         clickPlusIcon();
-        sleep(1000);
         LOG.info("Step 4: Clicked + icon");
 
         // Step 5: Click on any available app card to pair (not using search)
@@ -126,6 +127,7 @@ public class AppPairingTest extends BaseTest {
         if (currentUrl.contains("login") || currentUrl.contains("register") ||
                 currentUrl.contains("accounts.appypie")) {
             LOG.info("Redirected to login/register: {}", currentUrl);
+            HealthTracker.get().recordFallback("PairingLoginRedirect", currentUrl);
             driver.navigate().back();
             waitForPageLoad();
 
@@ -137,6 +139,9 @@ public class AppPairingTest extends BaseTest {
             }
             return false;
         }
+
+        // Aesthetic scroll to the paired state
+        scrollPageSmoothly();
 
         return true;
     }
@@ -251,7 +256,13 @@ public class AppPairingTest extends BaseTest {
     private void scrollIntoView(WebElement element) {
         ((JavascriptExecutor) driver).executeScript(
                 "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", element);
-        sleep(800); // Longer wait after scroll to ensure element is interactable
+        sleep(500); // Aesthetic delay to let user see the scroll
+    }
+
+    private void scrollPageSmoothly() {
+        ((JavascriptExecutor) driver).executeScript("window.scrollBy({top: 300, behavior: 'smooth'});");
+        sleep(300);
+        ((JavascriptExecutor) driver).executeScript("window.scrollBy({top: -300, behavior: 'smooth'});");
     }
 
     private void waitForPageLoad() {
