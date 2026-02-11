@@ -1,4 +1,5 @@
 target/
+reports/dom_dumps/
 test-output/
 reports/
 screenshots/
@@ -7,10 +8,5 @@ screenshots/
 .project
 .DS_Store
 *.log
-
 tools/
 .vscode/
-
-
-tools/
-

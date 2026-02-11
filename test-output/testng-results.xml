@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testng-results ignored="0" total="5" passed="3" failed="2" skipped="0">
+  <reporter-output>
+  </reporter-output>
+  <suite started-at="2026-01-21T07:54:35 UTC" name="AutomationSuite" finished-at="2026-01-21T07:58:17 UTC" duration-ms="222027">
+    <groups>
+      <group name="navigation">
+        <method signature="AppyPieNavigationTest.openHomePage()[pri:1, instance:testing.AppyPieNavigationTest@5b7a5baa]" name="openHomePage" class="testing.AppyPieNavigationTest"/>
+        <method signature="AppyPieNavigationTest.validateAutomateUX()[pri:2, instance:testing.AppyPieNavigationTest@5b7a5baa]" name="validateAutomateUX" class="testing.AppyPieNavigationTest"/>
+        <method signature="AppyPieNavigationTest.connectTopNavigationTest()[pri:3, instance:testing.AppyPieNavigationTest@5b7a5baa]" name="connectTopNavigationTest" class="testing.AppyPieNavigationTest"/>
+      </group> <!-- navigation -->
+      <group name="login">
+        <method signature="LoginTest.loginRedirectsToIdentityProvider()[pri:0, instance:testing.LoginTest@1aafa419]" name="loginRedirectsToIdentityProvider" class="testing.LoginTest"/>
+      </group> <!-- login -->
+    </groups>
+    <test started-at="2026-01-21T07:54:35 UTC" name="SmokeTests" finished-at="2026-01-21T07:58:17 UTC" duration-ms="222027">
+      <class name="testing.SignupTest">
+        <test-method signature="signupButtonDisabledByDefault()[pri:0, instance:testing.SignupTest@776aec5c]" started-at="2026-01-21T07:58:14 UTC" name="signupButtonDisabledByDefault" finished-at="2026-01-21T07:58:17 UTC" duration-ms="2457" status="FAIL">
+          <exception class="java.lang.IllegalStateException">
+            <message>
+              <![CDATA[Expected exactly ONE Signup button, found: 0]]>
+            </message>
+            <full-stacktrace>
+              <![CDATA[java.lang.IllegalStateException: Expected exactly ONE Signup button, found: 0
+at pages.SignupPage.getSignupButton(SignupPage.java:96)
+at pages.SignupPage.isSignupButtonDisabled(SignupPage.java:65)
+at testing.SignupTest.signupButtonDisabledByDefault(SignupTest.java:17)
+at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+at java.base/java.lang.reflect.Method.invoke(Method.java:577)
+at org.testng.internal.invokers.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:141)
+at org.testng.internal.invokers.TestInvoker.invokeMethod(TestInvoker.java:687)
+at org.testng.internal.invokers.TestInvoker.invokeTestMethod(TestInvoker.java:230)
+at org.testng.internal.invokers.MethodRunner.runInSequence(MethodRunner.java:63)
+at org.testng.internal.invokers.TestInvoker$MethodInvocationAgent.invoke(TestInvoker.java:995)
+at org.testng.internal.invokers.TestInvoker.invokeTestMethods(TestInvoker.java:203)
+at org.testng.internal.invokers.TestMethodWorker.invokeTestMethods(TestMethodWorker.java:154)
+at org.testng.internal.invokers.TestMethodWorker.run(TestMethodWorker.java:134)
+at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+at org.testng.TestRunner.privateRun(TestRunner.java:741)
+at org.testng.TestRunner.run(TestRunner.java:616)
+at org.testng.SuiteRunner.runTest(SuiteRunner.java:421)
+at org.testng.SuiteRunner.runSequentially(SuiteRunner.java:413)
+at org.testng.SuiteRunner.privateRun(SuiteRunner.java:373)
+at org.testng.SuiteRunner.run(SuiteRunner.java:312)
+at org.testng.SuiteRunnerWorker.runSuite(SuiteRunnerWorker.java:52)
+at org.testng.SuiteRunnerWorker.run(SuiteRunnerWorker.java:95)
+at org.testng.TestNG.runSuitesSequentially(TestNG.java:1274)
+at org.testng.TestNG.runSuitesLocally(TestNG.java:1208)
+at org.testng.TestNG.runSuites(TestNG.java:1112)
+at org.testng.TestNG.run(TestNG.java:1079)
+at org.testng.remote.AbstractRemoteTestNG.run(AbstractRemoteTestNG.java:115)
+at org.testng.remote.RemoteTestNG.initAndRun(RemoteTestNG.java:293)
+at org.testng.remote.RemoteTestNG.main(RemoteTestNG.java:91)
+]]>
+            </full-stacktrace>
+          </exception> <!-- java.lang.IllegalStateException -->
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- signupButtonDisabledByDefault -->
+        <test-method is-config="true" signature="afterEachTest(org.testng.ITestResult)[pri:0, instance:testing.SignupTest@776aec5c]" started-at="2026-01-21T07:58:17 UTC" name="afterEachTest" finished-at="2026-01-21T07:58:17 UTC" duration-ms="393" status="PASS">
+          <params>
+            <param index="0">
+              <value>
+                <![CDATA[[TestResult name=signupButtonDisabledByDefault status=FAILURE method=SignupTest.signupButtonDisabledByDefault()[pri:0, instance:testing.SignupTest@776aec5c] output={null}]]]>
+              </value>
+            </param>
+          </params>
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- afterEachTest -->
+      </class> <!-- testing.SignupTest -->
+      <class name="testing.AppyPieNavigationTest">
+        <test-method signature="openHomePage()[pri:1, instance:testing.AppyPieNavigationTest@5b7a5baa]" started-at="2026-01-21T07:55:14 UTC" name="openHomePage" finished-at="2026-01-21T07:55:19 UTC" duration-ms="5084" status="PASS">
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- openHomePage -->
+        <test-method is-config="true" signature="afterEachTest(org.testng.ITestResult)[pri:0, instance:testing.AppyPieNavigationTest@5b7a5baa]" started-at="2026-01-21T07:55:19 UTC" name="afterEachTest" finished-at="2026-01-21T07:55:19 UTC" duration-ms="4" status="PASS">
+          <params>
+            <param index="0">
+              <value>
+                <![CDATA[[TestResult name=openHomePage status=SUCCESS method=AppyPieNavigationTest.openHomePage()[pri:1, instance:testing.AppyPieNavigationTest@5b7a5baa] output={null}]]]>
+              </value>
+            </param>
+          </params>
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- afterEachTest -->
+        <test-method signature="validateAutomateUX()[pri:2, instance:testing.AppyPieNavigationTest@5b7a5baa]" started-at="2026-01-21T07:55:19 UTC" name="validateAutomateUX" finished-at="2026-01-21T07:55:52 UTC" duration-ms="32784" status="PASS">
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- validateAutomateUX -->
+        <test-method is-config="true" signature="afterEachTest(org.testng.ITestResult)[pri:0, instance:testing.AppyPieNavigationTest@5b7a5baa]" started-at="2026-01-21T07:55:52 UTC" name="afterEachTest" finished-at="2026-01-21T07:55:52 UTC" duration-ms="6" status="PASS">
+          <params>
+            <param index="0">
+              <value>
+                <![CDATA[[TestResult name=validateAutomateUX status=SUCCESS method=AppyPieNavigationTest.validateAutomateUX()[pri:2, instance:testing.AppyPieNavigationTest@5b7a5baa] output={null}]]]>
+              </value>
+            </param>
+          </params>
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- afterEachTest -->
+        <test-method signature="connectTopNavigationTest()[pri:3, instance:testing.AppyPieNavigationTest@5b7a5baa]" started-at="2026-01-21T07:55:52 UTC" name="connectTopNavigationTest" finished-at="2026-01-21T07:58:14 UTC" duration-ms="141959" status="PASS">
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- connectTopNavigationTest -->
+        <test-method is-config="true" signature="afterEachTest(org.testng.ITestResult)[pri:0, instance:testing.AppyPieNavigationTest@5b7a5baa]" started-at="2026-01-21T07:58:14 UTC" name="afterEachTest" finished-at="2026-01-21T07:58:14 UTC" duration-ms="5" status="PASS">
+          <params>
+            <param index="0">
+              <value>
+                <![CDATA[[TestResult name=connectTopNavigationTest status=SUCCESS method=AppyPieNavigationTest.connectTopNavigationTest()[pri:3, instance:testing.AppyPieNavigationTest@5b7a5baa] output={null}]]]>
+              </value>
+            </param>
+          </params>
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- afterEachTest -->
+        <test-method is-config="true" signature="afterSuiteHealthReport()[pri:0, instance:testing.AppyPieNavigationTest@5b7a5baa]" started-at="2026-01-21T07:58:17 UTC" name="afterSuiteHealthReport" finished-at="2026-01-21T07:58:19 UTC" duration-ms="2189" status="PASS">
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- afterSuiteHealthReport -->
+      </class> <!-- testing.AppyPieNavigationTest -->
+      <class name="testing.LoginTest">
+        <test-method is-config="true" signature="setUpSuite()[pri:0, instance:testing.LoginTest@1aafa419]" started-at="2026-01-21T07:54:29 UTC" name="setUpSuite" finished-at="2026-01-21T07:54:35 UTC" duration-ms="5684" status="PASS">
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- setUpSuite -->
+        <test-method signature="loginRedirectsToIdentityProvider()[pri:0, instance:testing.LoginTest@1aafa419]" started-at="2026-01-21T07:54:35 UTC" name="loginRedirectsToIdentityProvider" finished-at="2026-01-21T07:55:14 UTC" duration-ms="38837" status="FAIL">
+          <exception class="org.openqa.selenium.TimeoutException">
+            <message>
+              <![CDATA[Expected condition failed: waiting for visibility of element located by By.id: email (tried for 30 second(s) with 500 milliseconds interval)
+Build info: version: '4.24.0', revision: '748ffc9bc3'
+System info: os.name: 'Mac OS X', os.arch: 'x86_64', os.version: '15.7.3', java.version: '18.0.2.1'
+Driver info: org.openqa.selenium.chrome.ChromeDriver
+Capabilities {acceptInsecureCerts: false, browserName: chrome, browserVersion: 143.0.7499.193, chrome: {chromedriverVersion: 143.0.7499.192 (be2c1f4fd45..., userDataDir: /var/folders/74/9_jgzv7j695...}, fedcm:accounts: true, goog:chromeOptions: {debuggerAddress: localhost:56052}, goog:processID: 4599, networkConnectionEnabled: false, pageLoadStrategy: normal, platformName: mac, proxy: Proxy(), se:cdp: ws://localhost:56052/devtoo..., se:cdpVersion: 143.0.7499.193, setWindowRect: true, strictFileInteractability: false, timeouts: {implicit: 0, pageLoad: 300000, script: 30000}, unhandledPromptBehavior: dismiss and notify, webauthn:extension:credBlob: true, webauthn:extension:largeBlob: true, webauthn:extension:minPinLength: true, webauthn:extension:prf: true, webauthn:virtualAuthenticators: true}
+Session ID: e295062042cf41c726374b9fb22bd3ca]]>
+            </message>
+            <full-stacktrace>
+              <![CDATA[org.openqa.selenium.TimeoutException: Expected condition failed: waiting for visibility of element located by By.id: email (tried for 30 second(s) with 500 milliseconds interval)
+Build info: version: '4.24.0', revision: '748ffc9bc3'
+System info: os.name: 'Mac OS X', os.arch: 'x86_64', os.version: '15.7.3', java.version: '18.0.2.1'
+Driver info: org.openqa.selenium.chrome.ChromeDriver
+Capabilities {acceptInsecureCerts: false, browserName: chrome, browserVersion: 143.0.7499.193, chrome: {chromedriverVersion: 143.0.7499.192 (be2c1f4fd45..., userDataDir: /var/folders/74/9_jgzv7j695...}, fedcm:accounts: true, goog:chromeOptions: {debuggerAddress: localhost:56052}, goog:processID: 4599, networkConnectionEnabled: false, pageLoadStrategy: normal, platformName: mac, proxy: Proxy(), se:cdp: ws://localhost:56052/devtoo..., se:cdpVersion: 143.0.7499.193, setWindowRect: true, strictFileInteractability: false, timeouts: {implicit: 0, pageLoad: 300000, script: 30000}, unhandledPromptBehavior: dismiss and notify, webauthn:extension:credBlob: true, webauthn:extension:largeBlob: true, webauthn:extension:minPinLength: true, webauthn:extension:prf: true, webauthn:virtualAuthenticators: true}
+Session ID: e295062042cf41c726374b9fb22bd3ca
+at org.openqa.selenium.support.ui.WebDriverWait.timeoutException(WebDriverWait.java:84)
+at org.openqa.selenium.support.ui.FluentWait.until(FluentWait.java:228)
+at utils.WaitUtils.waitForVisible(WaitUtils.java:28)
+at utils.WaitUtils.waitForVisible(WaitUtils.java:54)
+at pages.LoginPage.attemptLogin(LoginPage.java:30)
+at testing.LoginTest.loginRedirectsToIdentityProvider(LoginTest.java:18)
+at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:104)
+at java.base/java.lang.reflect.Method.invoke(Method.java:577)
+at org.testng.internal.invokers.MethodInvocationHelper.invokeMethod(MethodInvocationHelper.java:141)
+at org.testng.internal.invokers.TestInvoker.invokeMethod(TestInvoker.java:687)
+at org.testng.internal.invokers.TestInvoker.invokeTestMethod(TestInvoker.java:230)
+at org.testng.internal.invokers.MethodRunner.runInSequence(MethodRunner.java:63)
+at org.testng.internal.invokers.TestInvoker$MethodInvocationAgent.invoke(TestInvoker.java:995)
+at org.testng.internal.invokers.TestInvoker.invokeTestMethods(TestInvoker.java:203)
+at org.testng.internal.invokers.TestMethodWorker.invokeTestMethods(TestMethodWorker.java:154)
+at org.testng.internal.invokers.TestMethodWorker.run(TestMethodWorker.java:134)
+at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+at org.testng.TestRunner.privateRun(TestRunner.java:741)
+at org.testng.TestRunner.run(TestRunner.java:616)
+at org.testng.SuiteRunner.runTest(SuiteRunner.java:421)
+at org.testng.SuiteRunner.runSequentially(SuiteRunner.java:413)
+at org.testng.SuiteRunner.privateRun(SuiteRunner.java:373)
+at org.testng.SuiteRunner.run(SuiteRunner.java:312)
+at org.testng.SuiteRunnerWorker.runSuite(SuiteRunnerWorker.java:52)
+at org.testng.SuiteRunnerWorker.run(SuiteRunnerWorker.java:95)
+at org.testng.TestNG.runSuitesSequentially(TestNG.java:1274)
+at org.testng.TestNG.runSuitesLocally(TestNG.java:1208)
+at org.testng.TestNG.runSuites(TestNG.java:1112)
+at org.testng.TestNG.run(TestNG.java:1079)
+at org.testng.remote.AbstractRemoteTestNG.run(AbstractRemoteTestNG.java:115)
+at org.testng.remote.RemoteTestNG.initAndRun(RemoteTestNG.java:293)
+at org.testng.remote.RemoteTestNG.main(RemoteTestNG.java:91)
+]]>
+            </full-stacktrace>
+          </exception> <!-- org.openqa.selenium.TimeoutException -->
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- loginRedirectsToIdentityProvider -->
+        <test-method is-config="true" signature="afterEachTest(org.testng.ITestResult)[pri:0, instance:testing.LoginTest@1aafa419]" started-at="2026-01-21T07:55:14 UTC" name="afterEachTest" finished-at="2026-01-21T07:55:14 UTC" duration-ms="456" status="PASS">
+          <params>
+            <param index="0">
+              <value>
+                <![CDATA[[TestResult name=loginRedirectsToIdentityProvider status=FAILURE method=LoginTest.loginRedirectsToIdentityProvider()[pri:0, instance:testing.LoginTest@1aafa419] output={null}]]]>
+              </value>
+            </param>
+          </params>
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- afterEachTest -->
+        <test-method is-config="true" signature="tearDownSuite()[pri:0, instance:testing.LoginTest@1aafa419]" started-at="2026-01-21T07:58:19 UTC" name="tearDownSuite" finished-at="2026-01-21T07:58:20 UTC" depends-on-methods="testing.AppyPieNavigationTest.afterSuiteHealthReport" duration-ms="774" status="PASS">
+          <reporter-output>
+          </reporter-output>
+        </test-method> <!-- tearDownSuite -->
+      </class> <!-- testing.LoginTest -->
+    </test> <!-- SmokeTests -->
+  </suite> <!-- AutomationSuite -->
+</testng-results>

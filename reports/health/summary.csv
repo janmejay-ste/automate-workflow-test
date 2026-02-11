@@ -1,0 +1,4 @@
+timestamp,healthScore,status,totalNavSteps,fallbackCount,slowPages,jsErrorCount,warningCount
+1765352295917,32,AT_RISK,20,4,12,11,34
+1765354183479,0,AT_RISK,10,5,7,14,58
+1765355730359,0,AT_RISK,10,5,10,15,66
