@@ -75,4 +75,39 @@ public class DashboardPage {
             ((org.openqa.selenium.JavascriptExecutor) driver).executeScript("arguments[0].click();", lLink);
         }
     }
+
+    /**
+     * Logs out and verifies that the browser redirects to the base URL.
+     * Returns the final URL for assertion.
+     */
+    public String logoutAndVerifyRedirect() {
+        // First navigate to dashboard to ensure we can access profile menu
+        String dashboardUrl = "https://connectcloud.appypie.com/connects";
+        if (!driver.getCurrentUrl().contains("/connects")) {
+            logger.info("Not on dashboard, navigating there before logout...");
+            driver.get(dashboardUrl);
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException ignored) {
+            }
+        }
+
+        logout();
+
+        // Wait for redirect to base URL
+        logger.info("Waiting for redirect to base URL after logout...");
+        try {
+            new org.openqa.selenium.support.ui.WebDriverWait(driver, Duration.ofSeconds(15))
+                    .until(d -> {
+                        String url = d.getCurrentUrl().toLowerCase();
+                        return url.contains("appypieautomate.ai") || url.contains("appypie.com/login");
+                    });
+        } catch (Exception e) {
+            logger.warn("Redirect wait timed out. Current URL: {}", driver.getCurrentUrl());
+        }
+
+        String finalUrl = driver.getCurrentUrl();
+        logger.info("Post-logout URL: {}", finalUrl);
+        return finalUrl;
+    }
 }

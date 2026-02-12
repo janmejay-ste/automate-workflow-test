@@ -92,6 +92,23 @@ public class WaitUtils {
                 ".user-guide-container, .guide-overlay, .joyride-step__container, .guide-tooltip, .app-user-guide");
 
         try {
+            // Wait up to 5 seconds for guide to appear (it loads with a delay)
+            System.out.println("Waiting for User Guide to appear...");
+            boolean guideFound = false;
+            for (int wait = 0; wait < 10; wait++) {
+                if (!driver.findElements(guideContainer).isEmpty()) {
+                    guideFound = true;
+                    System.out.println("User Guide detected after " + (wait * 500) + "ms");
+                    break;
+                }
+                Thread.sleep(500);
+            }
+            if (!guideFound) {
+                System.out.println("No User Guide appeared after 5s. Continuing.");
+                return;
+            }
+
+            // Navigate through guide steps
             int maxSteps = 15;
             while (maxSteps > 0) {
                 java.util.List<WebElement> containers = driver.findElements(guideContainer);
@@ -109,8 +126,14 @@ public class WaitUtils {
                         String text = btn.getText();
                         System.out.println("User Guide step (" + (16 - maxSteps) + "): Clicking "
                                 + (text.isEmpty() ? "Next button" : text));
-                        btn.click();
-                        Thread.sleep(1500); // Wait for step transition
+                        try {
+                            btn.click();
+                        } catch (Exception ce) {
+                            // JS click fallback
+                            ((org.openqa.selenium.JavascriptExecutor) driver)
+                                    .executeScript("arguments[0].click();", btn);
+                        }
+                        Thread.sleep(1500);
                         clicked = true;
                         break;
                     }
@@ -133,8 +156,21 @@ public class WaitUtils {
                     break;
                 maxSteps--;
             }
+
+            // Final check: make sure guide is fully gone
+            Thread.sleep(500);
+            if (!driver.findElements(guideContainer).isEmpty()) {
+                System.out.println("Guide still present after loop. Force-closing...");
+                java.util.List<WebElement> closeBtns = driver.findElements(closeBtn);
+                for (WebElement cb : closeBtns) {
+                    if (cb.isDisplayed()) {
+                        cb.click();
+                        break;
+                    }
+                }
+            }
         } catch (Exception e) {
-            // Suppress guide issues
+            System.out.println("User Guide handling error (suppressed): " + e.getMessage());
         }
     }
 
