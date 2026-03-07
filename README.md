@@ -1,4 +1,4 @@
-# AppyPie Automate — Test Agent Framework
+# AppyPie Automate - Test Agent Framework
 
 > **Branch:** `appypieautomate-test-agent`
 > **Status:** Active Development — evolving from a test automation suite into a self-driving QA Test Agent
@@ -22,12 +22,12 @@ This is a **Selenium + TestNG** based QA framework for [AppyPie Automate](https:
 
 | Layer | Status | Description |
 |-------|--------|-------------|
-| **Test Execution** | ✅ Active | Selenium/TestNG tests across App Pairing, Login, Navigation, Error Handling |
-| **Analytics Collector** | ✅ Active | Per-test JS error tracking, locator reliability, performance baselines |
-| **Health Scoring** | ✅ Active | Penalty-based scoring (JS errors, fallbacks, slow pages, test failures) |
-| **Health Dashboard** | ✅ Active | Interactive HTML dashboard with trend charts and grouped filters |
-| **History Tracking** | ✅ Active | CSV + JSON trend history with run metadata |
-| **Test Agent Evolution** | 🔄 In Progress | Moving towards autonomous test orchestration and self-healing |
+| **Test Execution** | Active | Selenium/TestNG tests across App Pairing, Login, Navigation, Error Handling |
+| **Analytics Collector** | Active | Per-test JS error tracking, locator reliability, performance baselines |
+| **Health Scoring** | Active | Penalty-based scoring (JS errors, fallbacks, slow pages, test failures) |
+| **Health Dashboard** | Active | Interactive HTML dashboard with trend charts and grouped filters |
+| **History Tracking** | Active | CSV + JSON trend history with run metadata |
+| **Test Agent Evolution** | In Progress | Moving towards autonomous test orchestration and self-healing |
 
 ---
 
@@ -139,11 +139,11 @@ The dashboard shows:
 
 | Score | Status |
 |-------|--------|
-| ≥ 90 | ✅ Healthy |
-| 75–89 | 🔵 Minor Issues |
-| 60–74 | 🟡 Degraded |
-| 40–59 | 🟠 At Risk |
-| < 40 | 🔴 Critical |
+| ≥ 90 | Healthy |
+| 75–89 | Minor Issues |
+| 60–74 | Degraded |
+| 40–59 | At Risk |
+| < 40 | Critical |
 
 ---
 
