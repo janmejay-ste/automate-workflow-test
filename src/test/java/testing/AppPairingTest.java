@@ -1,6 +1,8 @@
 package testing;
 
 import base.BaseTest;
+import base.TestCategory;
+import base.TestType;
 import org.openqa.selenium.*;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
@@ -19,6 +21,7 @@ import java.util.List;
  * Flow: Search first app → Click "+" icon → Select second app → Click Automate
  * Handles login redirects by navigating back.
  */
+@TestCategory(type = TestType.REGRESSION, feature = "App Pairing")
 public class AppPairingTest extends BaseTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(AppPairingTest.class);
@@ -29,17 +32,17 @@ public class AppPairingTest extends BaseTest {
 
     // First apps to search for
     private static final String[] FIRST_APPS = {
-            "WordPress", "Zoom", "Slack", "Trello", "Google Sheets", "Shopify"
+            "Zoho", "Zoom", "Slack", "Trello", "Google Sheets", "Shopify"
     };
 
     @Override
     @BeforeMethod(alwaysRun = true)
     public void setUp() {
         super.setUp();
-        wait = new WebDriverWait(driver, Duration.ofSeconds(15));
+        wait = new WebDriverWait(driver, Duration.ofSeconds(10));
     }
 
-    @Test(groups = "app-pairing", priority = 1)
+    @Test(groups = { "regression" }, priority = 1)
     public void testAppPairingSearchFlow() {
         LOG.info("Starting app pairing test with {} iterations", PAIRING_ITERATIONS);
 
@@ -71,35 +74,22 @@ public class AppPairingTest extends BaseTest {
                 successfulPairings, loginRedirects);
 
         // At least some pairings should complete (even if they redirect to login)
-        // Lower threshold since page content is dynamic
         Assert.assertTrue(successfulPairings + loginRedirects >= 2,
                 "Expected at least 2 pairing attempts to complete, got: " +
                         (successfulPairings + loginRedirects));
     }
 
-    /**
-     * Tests a single app pairing flow.
-     * 
-     * @return true if pairing completed without login redirect, false if login
-     *         redirect occurred
-     */
     private boolean testSinglePairing(String firstApp, int iteration) {
-        // Step 1: Navigate to App Directory
         driver.get(APP_DIRECTORY_URL);
         waitForPageLoad();
         LOG.info("Step 1: Navigated to App Directory");
 
-        // Step 2: Search for the first app in the search bar
         WebElement searchInput = wait.until(ExpectedConditions.visibilityOfElementLocated(
                 By.cssSelector("input#appConnectName, input[placeholder*='Search Apps']")));
         searchInput.clear();
         searchInput.sendKeys(firstApp);
-        // Reduced debounce wait for faster search
-        new WebDriverWait(driver, Duration.ofSeconds(5))
-                .until(d -> driver.findElements(By.xpath("//*[contains(text(),'" + firstApp + "')]")).size() > 0);
         LOG.info("Step 2: Searched for {}", firstApp);
 
-        // Step 3: Click on the first app from results
         WebElement appCard = findAndClickAppCard(firstApp);
         if (appCard == null) {
             throw new RuntimeException("Could not find app card for: " + firstApp);
@@ -107,23 +97,18 @@ public class AppPairingTest extends BaseTest {
         waitForPageLoad();
         LOG.info("Step 3: Clicked on {} app card", firstApp);
 
-        // Step 4: Click the "+" icon to add second app
         clickPlusIcon();
         LOG.info("Step 4: Clicked + icon");
 
-        // Step 5: Click on any available app card to pair (not using search)
         clickSecondAppCard(iteration);
         waitForPageLoad();
         LOG.info("Step 5: Selected second app");
 
-        // Step 6: Click on "Automate" or "Get Started" button
         clickAutomateButton();
-        sleep(2000);
+        sleep(500);
         LOG.info("Step 6: Clicked Automate/Get Started button");
 
-        // Step 7: Check if redirected to login
         String currentUrl = driver.getCurrentUrl();
-
         if (currentUrl.contains("login") || currentUrl.contains("register") ||
                 currentUrl.contains("accounts.appypie")) {
             LOG.info("Redirected to login/register: {}", currentUrl);
@@ -131,7 +116,6 @@ public class AppPairingTest extends BaseTest {
             driver.navigate().back();
             waitForPageLoad();
 
-            // Check again if still on login page
             currentUrl = driver.getCurrentUrl();
             if (currentUrl.contains("login") || currentUrl.contains("register")) {
                 driver.navigate().back();
@@ -140,9 +124,7 @@ public class AppPairingTest extends BaseTest {
             return false;
         }
 
-        // Aesthetic scroll to the paired state
         scrollPageSmoothly();
-
         return true;
     }
 
@@ -155,28 +137,23 @@ public class AppPairingTest extends BaseTest {
                 By.cssSelector(".plus-icon, .add-app-btn"));
 
         for (By selector : plusIconSelectors) {
-            try {
-                WebElement plusIcon = wait.until(ExpectedConditions.elementToBeClickable(selector));
+            List<WebElement> elements = driver.findElements(selector);
+            if (!elements.isEmpty() && elements.get(0).isDisplayed()) {
+                WebElement plusIcon = elements.get(0);
                 scrollIntoView(plusIcon);
                 plusIcon.click();
                 LOG.info("Clicked + icon using: {}", selector);
                 return;
-            } catch (TimeoutException e) {
-                // Try next selector
             }
         }
 
-        // If no + icon found, scroll down to find app cards
         LOG.info("No + icon found, scrolling to find app cards");
         ((JavascriptExecutor) driver).executeScript("window.scrollBy(0, 500);");
-        sleep(500);
+        sleep(300);
     }
 
     private void clickSecondAppCard(int iteration) {
-        // Wait for app cards to be visible
-        sleep(1000);
-
-        // Try to find any clickable app cards in the integration section
+        sleep(300);
         List<By> cardSelectors = List.of(
                 By.cssSelector("div.app-box a, div.integration-card a"),
                 By.cssSelector("a[href*='/integrations/']"),
@@ -187,7 +164,6 @@ public class AppPairingTest extends BaseTest {
             try {
                 List<WebElement> cards = driver.findElements(selector);
                 if (!cards.isEmpty()) {
-                    // Pick a card based on iteration to test different apps
                     int cardIndex = Math.min(iteration, cards.size() - 1);
                     WebElement card = cards.get(cardIndex);
                     scrollIntoView(card);
@@ -196,10 +172,8 @@ public class AppPairingTest extends BaseTest {
                     return;
                 }
             } catch (Exception e) {
-                // Try next selector
             }
         }
-
         throw new RuntimeException("Could not find any second app cards to click");
     }
 
@@ -213,17 +187,15 @@ public class AppPairingTest extends BaseTest {
                 By.cssSelector("a.btn-primary, button.btn-primary"));
 
         for (By selector : automateSelectors) {
-            try {
-                WebElement button = wait.until(ExpectedConditions.elementToBeClickable(selector));
+            List<WebElement> elements = driver.findElements(selector);
+            if (!elements.isEmpty() && elements.get(0).isDisplayed()) {
+                WebElement button = elements.get(0);
                 scrollIntoView(button);
                 button.click();
                 LOG.info("Clicked automate button: {}", selector);
                 return;
-            } catch (TimeoutException e) {
-                // Try next selector
             }
         }
-
         throw new RuntimeException("Could not find Automate/Get Started button");
     }
 
@@ -238,7 +210,6 @@ public class AppPairingTest extends BaseTest {
             try {
                 WebElement card = driver.findElement(selector);
                 scrollIntoView(card);
-                // Try regular click first, fall back to JS click
                 try {
                     card.click();
                 } catch (ElementNotInteractableException e) {
@@ -247,7 +218,6 @@ public class AppPairingTest extends BaseTest {
                 }
                 return card;
             } catch (NoSuchElementException e) {
-                // Try next selector
             }
         }
         return null;
@@ -256,19 +226,19 @@ public class AppPairingTest extends BaseTest {
     private void scrollIntoView(WebElement element) {
         ((JavascriptExecutor) driver).executeScript(
                 "arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", element);
-        sleep(500); // Aesthetic delay to let user see the scroll
+        sleep(100);
     }
 
     private void scrollPageSmoothly() {
         ((JavascriptExecutor) driver).executeScript("window.scrollBy({top: 300, behavior: 'smooth'});");
-        sleep(300);
+        sleep(200);
         ((JavascriptExecutor) driver).executeScript("window.scrollBy({top: -300, behavior: 'smooth'});");
     }
 
     private void waitForPageLoad() {
         wait.until(d -> ((JavascriptExecutor) d)
                 .executeScript("return document.readyState").equals("complete"));
-        sleep(1000);
+        sleep(100);
     }
 
     private void sleep(long ms) {

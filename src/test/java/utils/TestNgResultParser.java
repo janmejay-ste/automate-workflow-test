@@ -16,7 +16,8 @@ import java.util.List;
 
 public class TestNgResultParser {
     private static final Logger LOG = LoggerFactory.getLogger(TestNgResultParser.class);
-    private static final String TESTNG_RESULTS = "test-output/testng-results.xml";
+    private static final String TESTNG_RESULTS_MAVEN = "target/surefire-reports/testng-results.xml";
+    private static final String TESTNG_RESULTS_IDE = "test-output/testng-results.xml";
 
     public static class TestMethodResult {
         public final String className;
@@ -35,20 +36,28 @@ public class TestNgResultParser {
     public static List<TestMethodResult> parse() {
         List<TestMethodResult> out = new ArrayList<>();
         try {
-            Path p = Paths.get(TESTNG_RESULTS);
-            if (!Files.exists(p)) return out;
+            Path p = Paths.get(TESTNG_RESULTS_MAVEN);
+            if (!Files.exists(p)) {
+                p = Paths.get(TESTNG_RESULTS_IDE);
+            }
+            if (!Files.exists(p))
+                return out;
             DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
             DocumentBuilder db = dbf.newDocumentBuilder();
             Document doc = db.parse(p.toFile());
             NodeList methods = doc.getElementsByTagName("test-method");
             for (int i = 0; i < methods.getLength(); i++) {
-                if (!(methods.item(i) instanceof Element)) continue;
+                if (!(methods.item(i) instanceof Element))
+                    continue;
                 Element el = (Element) methods.item(i);
                 String name = el.getAttribute("name");
                 String status = el.getAttribute("status");
                 String duration = el.getAttribute("duration-ms");
                 long dur = 0L;
-                try { dur = Long.parseLong(duration); } catch (Exception ignored) {}
+                try {
+                    dur = Long.parseLong(duration);
+                } catch (Exception ignored) {
+                }
                 // find enclosing class element safely
                 String className = "";
                 org.w3c.dom.Node parent = el.getParentNode();

@@ -1,13 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
-<suite name="AutomationSuite" verbose="2" parallel="none">
+<suite name="AppyPieAutomationSuite" verbose="2" parallel="none">
 
   <listeners>
     <listener class-name="base.TestNGInitListener"/>
     <listener class-name="utils.CustomHtmlReporter"/>
   </listeners>
 
-  <!-- All tests run once -->
+  <!--
+    Default: runs ALL tests once.
+    For targeted runs, use Maven command-line group filtering:
+      mvn test -Dgroups=smoke       (5 critical tests, <90s)
+      mvn test -Dgroups=sanity      (core functionality)
+      mvn test -Dgroups=regression  (deeper validation)
+      mvn test -Dgroups=full        (login-required E2E)
+  -->
   <test name="AllTests" preserve-order="true">
     <packages>
       <package name="testing"/>

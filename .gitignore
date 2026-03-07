@@ -10,3 +10,4 @@ screenshots/
 *.log
 tools/
 .vscode/
+bin/

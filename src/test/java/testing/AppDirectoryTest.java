@@ -1,6 +1,8 @@
 package testing;
 
 import base.BaseTest;
+import base.TestCategory;
+import base.TestType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
@@ -13,6 +15,7 @@ import utils.health.HealthTracker;
  * Tests for the App Directory / Integrations page.
  * Validates loading, search functionality, and integration card display.
  */
+@TestCategory(type = TestType.SANITY, feature = "App Directory")
 public class AppDirectoryTest extends BaseTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(AppDirectoryTest.class);
@@ -30,7 +33,7 @@ public class AppDirectoryTest extends BaseTest {
     // Page Load Tests
     // --------------------------------------------------
 
-    @Test(groups = "app-directory", priority = 1)
+    @Test(groups = { "smoke", "sanity" }, priority = 1)
     public void verifyAppDirectoryLoads() {
         appDirectory.navigateTo();
 
@@ -45,7 +48,7 @@ public class AppDirectoryTest extends BaseTest {
         LOG.info("App Directory page loaded successfully");
     }
 
-    @Test(groups = "app-directory", priority = 2)
+    @Test(groups = { "sanity" }, priority = 2)
     public void verifyIntegrationCardsPresent() {
         appDirectory.navigateTo();
 
@@ -65,7 +68,7 @@ public class AppDirectoryTest extends BaseTest {
     // Search Tests
     // --------------------------------------------------
 
-    @Test(groups = "app-directory", priority = 3)
+    @Test(groups = { "sanity" }, priority = 3)
     public void verifySearchFunctionalityExists() {
         appDirectory.navigateTo();
 
@@ -79,7 +82,7 @@ public class AppDirectoryTest extends BaseTest {
         }
     }
 
-    @Test(groups = "app-directory", priority = 4, dependsOnMethods = "verifySearchFunctionalityExists")
+    @Test(groups = { "sanity" }, priority = 4, dependsOnMethods = "verifySearchFunctionalityExists")
     public void verifySearchReturnsResults() {
         appDirectory.navigateTo();
 
@@ -99,7 +102,7 @@ public class AppDirectoryTest extends BaseTest {
         LOG.info("Search '{}' returned results successfully", searchTerm);
     }
 
-    @Test(groups = "app-directory", priority = 5)
+    @Test(groups = { "sanity" }, priority = 5)
     public void verifySearchWithNoResults() {
         appDirectory.navigateTo();
 
@@ -126,7 +129,7 @@ public class AppDirectoryTest extends BaseTest {
     // Integration Card Content Tests
     // --------------------------------------------------
 
-    @Test(groups = "app-directory", priority = 6)
+    @Test(groups = { "sanity" }, priority = 6)
     public void verifyIntegrationCardsHaveContent() {
         appDirectory.navigateTo();
 
@@ -146,7 +149,7 @@ public class AppDirectoryTest extends BaseTest {
     // Scroll Tests
     // --------------------------------------------------
 
-    @Test(groups = "app-directory", priority = 7)
+    @Test(groups = { "sanity" }, priority = 7)
     public void verifyScrollLoadingWorks() {
         appDirectory.navigateTo();
 

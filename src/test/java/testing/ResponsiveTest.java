@@ -1,6 +1,8 @@
 package testing;
 
 import base.BaseTest;
+import base.TestCategory;
+import base.TestType;
 import org.openqa.selenium.By;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +17,7 @@ import utils.health.HealthTracker;
  * Tests for responsive design across mobile, tablet, and desktop viewports.
  * Validates layout, navigation, and content display at different screen sizes.
  */
+@TestCategory(type = TestType.REGRESSION, feature = "Responsive Design")
 public class ResponsiveTest extends BaseTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(ResponsiveTest.class);
@@ -45,7 +48,7 @@ public class ResponsiveTest extends BaseTest {
     // Mobile Viewport Tests
     // --------------------------------------------------
 
-    @Test(groups = "responsive", priority = 1)
+    @Test(groups = {"regression"}, priority = 1)
     public void verifyMobileViewportRendersCorrectly() {
         LOG.info("Testing mobile viewport (375x667)");
         responsive.setMobileViewport();
@@ -69,7 +72,7 @@ public class ResponsiveTest extends BaseTest {
         LOG.info("Mobile viewport renders correctly");
     }
 
-    @Test(groups = "responsive", priority = 2)
+    @Test(groups = {"regression"}, priority = 2)
     public void verifyMobileMenuExists() {
         responsive.setMobileViewport();
 
@@ -86,7 +89,7 @@ public class ResponsiveTest extends BaseTest {
         }
     }
 
-    @Test(groups = "responsive", priority = 3)
+    @Test(groups = {"regression"}, priority = 3)
     public void verifyMobileCTAVisible() {
         responsive.setMobileViewport();
 
@@ -105,7 +108,7 @@ public class ResponsiveTest extends BaseTest {
     // Tablet Viewport Tests
     // --------------------------------------------------
 
-    @Test(groups = "responsive", priority = 4)
+    @Test(groups = {"regression"}, priority = 4)
     public void verifyTabletViewportRendersCorrectly() {
         LOG.info("Testing tablet viewport (768x1024)");
         responsive.setTabletViewport();
@@ -128,7 +131,7 @@ public class ResponsiveTest extends BaseTest {
         LOG.info("Tablet viewport renders correctly");
     }
 
-    @Test(groups = "responsive", priority = 5)
+    @Test(groups = {"regression"}, priority = 5)
     public void verifyTabletLayoutAdaptation() {
         responsive.setTabletViewport();
 
@@ -144,7 +147,7 @@ public class ResponsiveTest extends BaseTest {
     // Desktop Viewport Tests
     // --------------------------------------------------
 
-    @Test(groups = "responsive", priority = 6)
+    @Test(groups = {"regression"}, priority = 6)
     public void verifyDesktopViewportRendersCorrectly() {
         LOG.info("Testing desktop viewport (1440x900)");
         responsive.setDesktopViewport();
@@ -165,7 +168,7 @@ public class ResponsiveTest extends BaseTest {
         LOG.info("Desktop viewport renders correctly");
     }
 
-    @Test(groups = "responsive", priority = 7)
+    @Test(groups = {"regression"}, priority = 7)
     public void verifyDesktopNavigationVisible() {
         responsive.setDesktopViewport();
 
@@ -187,7 +190,7 @@ public class ResponsiveTest extends BaseTest {
     // Cross-Viewport Tests
     // --------------------------------------------------
 
-    @Test(groups = "responsive", priority = 8)
+    @Test(groups = {"regression"}, priority = 8)
     public void verifyViewportTransitions() {
         LOG.info("Testing viewport transition from mobile to desktop");
 
@@ -209,7 +212,7 @@ public class ResponsiveTest extends BaseTest {
         LOG.info("Viewport transitions work correctly");
     }
 
-    @Test(groups = "responsive", priority = 9)
+    @Test(groups = {"regression"}, priority = 9)
     public void verifySmallMobileViewport() {
         LOG.info("Testing small mobile viewport (320x568 - iPhone SE)");
         responsive.setViewport(ResponsiveHelper.MOBILE_SMALL);
@@ -229,7 +232,7 @@ public class ResponsiveTest extends BaseTest {
         LOG.info("Small mobile viewport handled correctly");
     }
 
-    @Test(groups = "responsive", priority = 10)
+    @Test(groups = {"regression"}, priority = 10)
     public void verifyLargeDesktopViewport() {
         LOG.info("Testing large desktop viewport (1920x1080 - Full HD)");
         responsive.setViewport(ResponsiveHelper.DESKTOP_LARGE);

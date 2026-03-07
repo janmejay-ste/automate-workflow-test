@@ -1,6 +1,8 @@
 package testing;
 
 import base.BaseTest;
+import base.TestCategory;
+import base.TestType;
 import org.testng.annotations.Test;
 import utils.ManualLoginHelper;
 import org.slf4j.Logger;
@@ -10,11 +12,12 @@ import pages.ConnectEditorPage;
 import pages.WaitUtils;
 import org.testng.Assert;
 
+@TestCategory(type = TestType.FULL, requiresLogin = true, feature = "Sanity Journey")
 public class AuthenticatedTest extends BaseTest {
     private static final Logger logger = LoggerFactory.getLogger(AuthenticatedTest.class);
     private static final String BASE_URL = "https://www.appypieautomate.ai";
 
-    @Test(groups = "sanity")
+    @Test(groups = {"full"})
     public void sanityUserJourney() {
         logger.info("=== Sanity: Login → Dashboard → Create Connect → Search Apps ===");
 
@@ -83,13 +86,17 @@ public class AuthenticatedTest extends BaseTest {
             ManualLoginHelper.dumpDom(driver, "sanity_action_selected");
 
             // 14. Select action event
-            editor.selectActionEvent("Send Email");
+            editor.selectActionEvent("Create Draft");
 
             // 15. Click Continue (after action event)
-            editor.clickContinue();
+            //editor.clickContinue();
+           // raw xpath removed
+           editor.clickContinue();
 
             // 16. Click Continue (second continue after loader)
-            editor.clickContinue();
+            // editor.clickContinue();
+           // raw xpath removed
+           editor.clickContinue();
 
             // 17. Handle Setup step for action (if present)
             editor.handleSetupStep();

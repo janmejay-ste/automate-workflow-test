@@ -1,6 +1,8 @@
 package testing;
 
 import base.BaseTest;
+import base.TestCategory;
+import base.TestType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
@@ -13,6 +15,7 @@ import utils.health.HealthTracker;
  * Tests for error page handling (404, 500, etc.)
  * Validates proper error display and navigation back to home.
  */
+@TestCategory(type = TestType.REGRESSION, feature = "Error Handling")
 public class ErrorHandlingTest extends BaseTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(ErrorHandlingTest.class);
@@ -30,7 +33,7 @@ public class ErrorHandlingTest extends BaseTest {
     // 404 Page Tests
     // --------------------------------------------------
 
-    @Test(groups = "error-handling", priority = 1)
+    @Test(groups = {"regression"}, priority = 1)
     public void verify404PageForInvalidUrl() {
         LOG.info("Navigating to invalid URL to trigger 404");
         errorPage.navigateToInvalidUrl();
@@ -58,7 +61,7 @@ public class ErrorHandlingTest extends BaseTest {
                 "Error page is blank/empty");
     }
 
-    @Test(groups = "error-handling", priority = 2)
+    @Test(groups = {"regression"}, priority = 2)
     public void verify404PageHasContent() {
         errorPage.navigateToInvalidUrl();
 
@@ -81,7 +84,7 @@ public class ErrorHandlingTest extends BaseTest {
         }
     }
 
-    @Test(groups = "error-handling", priority = 3)
+    @Test(groups = {"regression"}, priority = 3)
     public void verify404PageHasNavigationBack() {
         errorPage.navigateToInvalidUrl();
 
@@ -99,7 +102,7 @@ public class ErrorHandlingTest extends BaseTest {
         }
     }
 
-    @Test(groups = "error-handling", priority = 4)
+    @Test(groups = {"regression"}, priority = 4)
     public void verifyNavigationFromErrorPageWorks() {
         errorPage.navigateToInvalidUrl();
 
@@ -128,7 +131,7 @@ public class ErrorHandlingTest extends BaseTest {
     // Various Invalid URL Tests
     // --------------------------------------------------
 
-    @Test(groups = "error-handling", priority = 5)
+    @Test(groups = {"regression"}, priority = 5)
     public void verifyGracefulHandlingOfSpecialCharacters() {
         String invalidUrl = "https://www.appypieautomate.ai/<script>alert(1)</script>";
 
@@ -148,7 +151,7 @@ public class ErrorHandlingTest extends BaseTest {
         LOG.info("Special characters handled gracefully");
     }
 
-    @Test(groups = "error-handling", priority = 6)
+    @Test(groups = {"regression"}, priority = 6)
     public void verifyVeryLongUrlHandling() {
         // Create a very long URL path
         StringBuilder longPath = new StringBuilder("https://www.appypieautomate.ai/");
@@ -175,7 +178,7 @@ public class ErrorHandlingTest extends BaseTest {
     // Server Error Simulation
     // --------------------------------------------------
 
-    @Test(groups = "error-handling", priority = 7)
+    @Test(groups = {"regression"}, priority = 7)
     public void documentServerErrorBehavior() {
         // Note: We can't easily trigger a 500 error
         // This test documents expected behavior

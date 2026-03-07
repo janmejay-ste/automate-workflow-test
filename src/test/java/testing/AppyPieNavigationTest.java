@@ -1,6 +1,8 @@
 package testing;
 
 import base.BaseTest;
+import base.TestCategory;
+import base.TestType;
 import org.openqa.selenium.By;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,6 +15,7 @@ import utils.health.HealthTracker;
 
 import java.util.List;
 
+@TestCategory(type = TestType.SANITY, feature = "Navigation")
 public class AppyPieNavigationTest extends BaseTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(AppyPieNavigationTest.class);
@@ -25,7 +28,7 @@ public class AppyPieNavigationTest extends BaseTest {
     // Smoke: page load + domain + JS health
     // --------------------------------------------------
 
-    @Test(groups = "navigation", priority = 1)
+    @Test(groups = { "smoke", "sanity" }, priority = 1)
     public void verifyAutomateHomeLoads() {
         AppyPieAutomatePage automate = new AppyPieAutomatePage(driver);
 
@@ -51,7 +54,7 @@ public class AppyPieNavigationTest extends BaseTest {
     // UX + performance validation
     // --------------------------------------------------
 
-    @Test(groups = "navigation", priority = 2)
+    @Test(groups = { "sanity" }, priority = 2)
     public void validateAutomateUXAndPerformance() {
         AppyPieAutomatePage automate = new AppyPieAutomatePage(driver);
 
@@ -92,7 +95,7 @@ public class AppyPieNavigationTest extends BaseTest {
     // Navigation integrity (top menu)
     // --------------------------------------------------
 
-    @Test(groups = "navigation", priority = 3)
+    @Test(groups = { "sanity" }, priority = 3)
     public void validateTopNavigationLinks() {
         AppyPieAutomatePage automate = new AppyPieAutomatePage(driver);
 
@@ -107,7 +110,7 @@ public class AppyPieNavigationTest extends BaseTest {
     // Cross-page navigation (Connect menu)
     // --------------------------------------------------
 
-    @Test(groups = "navigation", priority = 4, enabled = false) // Disabled: MCP Server element not found
+    @Test(groups = { "sanity" }, priority = 4, enabled = false) // Disabled: MCP Server element not found
     public void validateConnectNavigation() {
         ConnectTopNavigation nav = new ConnectTopNavigation(driver);
 
@@ -146,7 +149,7 @@ public class AppyPieNavigationTest extends BaseTest {
     // Contact Sales / Calendly Test (Separate because it opens new tab)
     // --------------------------------------------------
 
-    @Test(groups = "navigation", priority = 5)
+    @Test(groups = { "sanity" }, priority = 5)
     public void validateContactSalesCalendly() {
         ConnectTopNavigation nav = new ConnectTopNavigation(driver);
 
@@ -167,10 +170,34 @@ public class AppyPieNavigationTest extends BaseTest {
     }
 
     // --------------------------------------------------
+    // Category Pages: Zoho (Fast path)
+    // --------------------------------------------------
+
+    @Test(groups = { "sanity" }, priority = 6)
+    public void validateZohoCategoryPage() {
+        LOG.info("Testing Zoho category page (fast path)");
+        driver.get("https://www.appypieautomate.ai/integrate/apps/categories/zoho");
+
+        AppyPieAutomatePage page = new AppyPieAutomatePage(driver);
+        page.waitUntilLoaded();
+
+        String title = driver.getTitle();
+        LOG.info("Zoho category page title: {}", title);
+
+        Assert.assertTrue(title.toLowerCase().contains("zoho"),
+                "Title should contain 'Zoho'");
+
+        Assert.assertTrue(driver.findElements(By.cssSelector("a[href*='zoho']")).size() > 0,
+                "Zoho related links should be present");
+
+        captureBrowserLogs("ZohoCategory");
+    }
+
+    // --------------------------------------------------
     // Category Pages: WordPress (Fast path)
     // --------------------------------------------------
 
-    @Test(groups = "navigation", priority = 6)
+    @Test(groups = { "sanity" }, priority = 7)
     public void validateWordPressCategoryPage() {
         LOG.info("Testing WordPress category page (fast path)");
         driver.get("https://www.appypieautomate.ai/integrate/apps/categories/wordpress");

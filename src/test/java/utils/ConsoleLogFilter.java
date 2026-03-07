@@ -47,6 +47,7 @@ public final class ConsoleLogFilter {
                 if (e.getLevel().intValue() >= Level.SEVERE.intValue()
                         || l.contains("uncaught")) {
                     tracker.recordJsError(context, msg, false);
+                    utils.analytics.JsErrorTracker.get().recordError(context, msg, null);
                 }
 
             }

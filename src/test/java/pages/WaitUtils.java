@@ -71,16 +71,16 @@ public class WaitUtils {
     }
 
     public void waitForLoader() {
-        By loader = By.cssSelector("app-loader, #loader, .outhLoader");
+        By loader = By.cssSelector(".loader, .spinner, .ngx-spinner, app-loader, #loader, .outhLoader");
         try {
-            // Short wait to see if loader appears
-            new WebDriverWait(driver, Duration.ofMillis(1500))
-                    .until(ExpectedConditions.presenceOfElementLocated(loader));
-            System.out.println("Loader detected, waiting for it to disappear...");
-            new WebDriverWait(driver, timeout)
-                    .until(ExpectedConditions.invisibilityOfElementLocated(loader));
+            // Wait only if loader appears
+            if (!driver.findElements(loader).isEmpty()) {
+                System.out.println("Loader detected, waiting for it to disappear...");
+                new WebDriverWait(driver, Duration.ofSeconds(15))
+                        .until(ExpectedConditions.invisibilityOfElementLocated(loader));
+            }
         } catch (Exception e) {
-            // If it never appears, that's fine too
+            // Suppress minor loader flakiness
         }
     }
 

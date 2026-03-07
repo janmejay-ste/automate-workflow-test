@@ -12,14 +12,15 @@ import org.testng.annotations.*;
 import utils.ConsoleLogFilter;
 import utils.DashboardBuilder;
 import utils.DashboardLauncher;
+import utils.FailureArtifactManager;
 import utils.TrendExporter;
 import utils.health.HealthGate;
 import utils.health.HealthTracker;
 import utils.analytics.TestAnalyticsLogger;
 
-import java.io.File;
-import java.nio.file.Files;
-import java.time.Instant;
+import java.lang.reflect.Method;
+import java.util.Arrays;
+
 import java.util.Set;
 import java.util.logging.Level;
 
@@ -47,12 +48,56 @@ public abstract class BaseTest {
             driver.manage().window().maximize();
         }
 
-        // Analytics: Test Started
+        // Analytics: Test Started — skip for non-test methods
+        // (@BeforeMethod/@AfterMethod and other config methods)
         ITestResult result = Reporter.getCurrentTestResult();
-        if (result != null && result.getMethod() != null) {
-            TestAnalyticsLogger.get().testStarted(
-                    this.getClass().getSimpleName(),
-                    result.getMethod().getMethodName());
+        if (result != null && result.getMethod() != null && result.getMethod().isTest()) {
+            String testClass = this.getClass().getSimpleName();
+            String testMethod = result.getMethod().getMethodName();
+            String testId = testClass + "." + testMethod;
+
+            // Category validation and login detection
+            TestCategory category = getCategory(result);
+            if (category != null) {
+                if (category.requiresLogin()) {
+                    LOG.warn("\uD83D\uDD12 Authenticated Flow Detected: {}.{} requires login", testClass, testMethod);
+                    // Login fail-fast: verify auth state early so we don't time out deep in the
+                    // workflow
+                    driver.get(BASE_URL + "/dashboard");
+                    try {
+                        Thread.sleep(3000);
+                    } catch (InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                    }
+                    String currentUrl = driver.getCurrentUrl();
+                    if (!currentUrl.contains("dashboard")) {
+                        LOG.error("Login fail-fast: expected dashboard URL but got: {}", currentUrl);
+                        throw new org.testng.SkipException(
+                                "Authentication required but user is not logged in. URL: " + currentUrl);
+                    }
+                    LOG.info("Login verified — dashboard accessible");
+                }
+                validateCategoryConsistency(result, category);
+            }
+            validateTestHasGroup(result);
+
+            // Analytics: Test Started
+            TestAnalyticsLogger.get().testStarted(testClass, testMethod,
+                    category != null ? category : createDefaultCategory());
+
+            // Owner Enforcement (V4 Hardened)
+            if (category != null) {
+                boolean missingOwner = "Unassigned".equals(category.owner()) || category.owner().isEmpty();
+
+                if (missingOwner) {
+                    if (category.type() == TestType.FULL) {
+                        LOG.error("❌ Governance Failure: Owner required for FULL test: {}", testId);
+                        throw new org.testng.SkipException("Governance skip: missing owner for FULL test.");
+                    } else if (category.type() == TestType.REGRESSION) {
+                        LOG.warn("⚠️ Governance Warning: Owner recommended for REGRESSION test: {}", testId);
+                    }
+                }
+            }
         }
 
         driver.get(BASE_URL); // Navigate to ensure clean starting state for each test
@@ -66,20 +111,38 @@ public abstract class BaseTest {
         String testMethod = result.getName();
 
         if (result.getStatus() == ITestResult.FAILURE) {
-            captureFailureArtifacts(result);
+            String artifactFolder = null;
+            if (isDriverHealthy()) {
+                artifactFolder = FailureArtifactManager.capture(driver, testMethod);
+            }
 
             // Analytics: Test Failed
-            TestAnalyticsLogger.get().testFailed(testClass, testMethod, result.getThrowable());
+            TestAnalyticsLogger.get().testFailed(testClass, testMethod, result.getThrowable(), artifactFolder);
 
             // Record in HealthTracker as well
-            HealthTracker.get().recordTestFailure(
+            HealthTracker ht = HealthTracker.get();
+            ht.recordTestFailure(
                     testClass + "." + testMethod,
                     result.getThrowable().getMessage(),
                     null // Stack trace already captured in logger
             );
+            TestCategory cat = getCategory(result);
+            if (cat == null)
+                cat = createDefaultCategory();
+            ht.addTestRecord(cat.type().name(), cat.requiresLogin() ? "Auth" : "Guest",
+                    cat.feature(), testClass, testMethod, "FAIL",
+                    result.getEndMillis() - result.getStartMillis());
         } else if (result.getStatus() == ITestResult.SUCCESS) {
             // Analytics: Test Passed
             TestAnalyticsLogger.get().testPassed(testClass, testMethod);
+            HealthTracker ht = HealthTracker.get();
+            ht.recordTestSuccess();
+            TestCategory cat = getCategory(result);
+            if (cat == null)
+                cat = createDefaultCategory();
+            ht.addTestRecord(cat.type().name(), cat.requiresLogin() ? "Auth" : "Guest",
+                    cat.feature(), testClass, testMethod, "PASS",
+                    result.getEndMillis() - result.getStartMillis());
         } else if (result.getStatus() == ITestResult.SKIP) {
             // Analytics: Test Skipped
             TestAnalyticsLogger.get().testSkipped(testClass, testMethod, "Skipped by TestNG");
@@ -104,6 +167,11 @@ public abstract class BaseTest {
 
             // Generate analytics reports
             TestAnalyticsLogger.get().generateReports();
+
+            // Per-suite history tracking
+            String suiteName = System.getProperty("suiteFile", "manual");
+            String env = System.getProperty("environment", "local");
+            utils.HistoryJsonWriter.appendRun(utils.analytics.AnalyticsCollector.collect(), suiteName, env);
 
             TrendExporter.updateTrend(score);
             tracker.printReport();
@@ -159,28 +227,6 @@ public abstract class BaseTest {
 
     // ---------- FAILURE HANDLING ----------
 
-    private void captureFailureArtifacts(ITestResult result) {
-        if (!isDriverHealthy())
-            return;
-
-        try {
-            File src = ((TakesScreenshot) driver).getScreenshotAs(OutputType.FILE);
-
-            String fileName = String.format(
-                    "%s_%s_%d.png",
-                    result.getTestClass().getRealClass().getSimpleName(),
-                    result.getName(),
-                    Instant.now().toEpochMilli());
-
-            File dest = new File("reports/screenshots/" + fileName);
-            dest.getParentFile().mkdirs();
-            Files.copy(src.toPath(), dest.toPath());
-
-            LOG.info("Screenshot captured: {}", dest.getAbsolutePath());
-        } catch (Throwable ignored) {
-        }
-    }
-
     // ---------- HEALTH ----------
 
     private boolean isDriverHealthy() {
@@ -197,6 +243,59 @@ public abstract class BaseTest {
         }
     }
 
+    // ---------- CATEGORY RESOLUTION ----------
+
+    /**
+     * Resolves @TestCategory — method-level overrides class-level.
+     */
+    protected TestCategory getCategory(ITestResult result) {
+        Method m = result.getMethod().getConstructorOrMethod().getMethod();
+        if (m != null && m.isAnnotationPresent(TestCategory.class)) {
+            return m.getAnnotation(TestCategory.class);
+        }
+        Class<?> clazz = result.getTestClass().getRealClass();
+        return clazz.getAnnotation(TestCategory.class);
+    }
+
+    /**
+     * Validates that TestNG groups match @TestCategory type.
+     * Logs a warning if they drift.
+     */
+    private void validateCategoryConsistency(ITestResult result, TestCategory cat) {
+        String[] groups = result.getMethod().getGroups();
+        String expectedGroup = cat.type().name().toLowerCase();
+
+        boolean found = Arrays.asList(groups).contains(expectedGroup);
+        // Smoke tests are also in sanity group, so check both
+        if (!found && cat.type() == TestType.SMOKE) {
+            found = Arrays.asList(groups).contains("smoke");
+        }
+        if (!found && cat.type() == TestType.SANITY) {
+            found = Arrays.asList(groups).contains("sanity") || Arrays.asList(groups).contains("smoke");
+        }
+
+        if (!found) {
+            LOG.warn("⚠ Category mismatch: @TestCategory({}) but groups={} for {}.{}",
+                    cat.type(), Arrays.toString(groups),
+                    result.getTestClass().getRealClass().getSimpleName(),
+                    result.getMethod().getMethodName());
+        }
+    }
+
+    /**
+     * Validates that every @Test method belongs to at least one group.
+     * Prevents silent test drift where new methods run in full suite but not in any
+     * targeted run.
+     */
+    private void validateTestHasGroup(ITestResult result) {
+        String[] groups = result.getMethod().getGroups();
+        if (groups == null || groups.length == 0) {
+            LOG.warn("⚠ Ungrouped test detected: {}.{} — will only run in full suite, not in targeted runs",
+                    result.getTestClass().getRealClass().getSimpleName(),
+                    result.getMethod().getMethodName());
+        }
+    }
+
     // ---------- LOGGING ----------
 
     private void silenceJavaUtilLogging() {
@@ -208,5 +307,44 @@ public abstract class BaseTest {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    private TestCategory createDefaultCategory() {
+        return new TestCategory() {
+            @Override
+            public Class<? extends java.lang.annotation.Annotation> annotationType() {
+                return TestCategory.class;
+            }
+
+            @Override
+            public TestType type() {
+                return TestType.REGRESSION;
+            }
+
+            @Override
+            public boolean requiresLogin() {
+                return false;
+            }
+
+            @Override
+            public String owner() {
+                return "Unassigned";
+            }
+
+            @Override
+            public String feature() {
+                return "General";
+            }
+
+            @Override
+            public TestType.Severity severity() {
+                return TestType.Severity.MEDIUM;
+            }
+
+            @Override
+            public TestType.FailureType defaultFailureType() {
+                return TestType.FailureType.PRODUCT_BUG;
+            }
+        };
     }
 }

@@ -15,7 +15,7 @@ public class TrendDataWriter {
     private static final Logger LOG = LoggerFactory.getLogger(TrendDataWriter.class);
     private static final String BASE = "reports/trend";
     private static final String CSV = BASE + "/health_history.csv";
-    private static final String HEADER = "Run,Score,Penalty,Status,JsErrors,FailedTests";
+    private static final String HEADER = "Run,Score,Penalty,Status,JsErrors,FailedTests,RunType";
 
     public static void ensureBase() {
         try {
@@ -29,13 +29,20 @@ public class TrendDataWriter {
      * Append a run score to the CSV (legacy single-column support).
      */
     public static void appendRun(int score) {
-        appendRun(score, Math.max(0, 100 - score), "UNKNOWN", 0, 0);
+        appendRun(score, Math.max(0, 100 - score), "UNKNOWN", 0, 0, "REGRESSION");
     }
 
     /**
      * Append a run with extended metadata to the CSV.
      */
     public static void appendRun(int score, int penalty, String status, int jsErrors, int failedTests) {
+        appendRun(score, penalty, status, jsErrors, failedTests, "REGRESSION");
+    }
+
+    /**
+     * Append a run with extended metadata including run type to the CSV.
+     */
+    public static void appendRun(int score, int penalty, String status, int jsErrors, int failedTests, String runType) {
         ensureBase();
         Path p = Paths.get(CSV);
         boolean exists = Files.exists(p);
@@ -65,10 +72,11 @@ public class TrendDataWriter {
                 bw.write(HEADER + "\n");
             }
             int nextRun = countDataRows(p) + 1;
-            bw.write(String.format("%d,%d,%d,%s,%d,%d%n",
+            bw.write(String.format("%d,%d,%d,%s,%d,%d,%s%n",
                     nextRun, score, penalty,
                     status != null ? status : "UNKNOWN",
-                    jsErrors, failedTests));
+                    jsErrors, failedTests,
+                    runType != null ? runType : "REGRESSION"));
             bw.flush();
         } catch (Exception ex) {
             LOG.warn("Failed to append run to {}: {}", CSV, ex.getMessage());
@@ -188,7 +196,8 @@ public class TrendDataWriter {
                             : (score >= 80 ? "STABLE" : score >= 50 ? "DEGRADED" : "AT_RISK");
                     int jsErrors = parts.length > 4 ? Integer.parseInt(parts[4]) : -1;
                     int failedTests = parts.length > 5 ? Integer.parseInt(parts[5]) : -1;
-                    out.add(new RunData(run, score, penalty, status, jsErrors, failedTests));
+                    String runType = parts.length > 6 ? parts[6] : "REGRESSION";
+                    out.add(new RunData(run, score, penalty, status, jsErrors, failedTests, runType));
                 } catch (NumberFormatException nfe) {
                     // ignore malformed rows
                 }
@@ -209,14 +218,20 @@ public class TrendDataWriter {
         public final String status;
         public final int jsErrors;
         public final int failedTests;
+        public final String runType;
 
         public RunData(int run, int score, int penalty, String status, int jsErrors, int failedTests) {
+            this(run, score, penalty, status, jsErrors, failedTests, "REGRESSION");
+        }
+
+        public RunData(int run, int score, int penalty, String status, int jsErrors, int failedTests, String runType) {
             this.run = run;
             this.score = score;
             this.penalty = penalty;
             this.status = status;
             this.jsErrors = jsErrors;
             this.failedTests = failedTests;
+            this.runType = runType;
         }
     }
 

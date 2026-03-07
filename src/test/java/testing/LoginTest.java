@@ -1,14 +1,17 @@
 package testing;
 
 import base.BaseTest;
+import base.TestCategory;
+import base.TestType;
 import org.openqa.selenium.By;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 import pages.LoginPage;
 
+@TestCategory(type = TestType.SANITY, feature = "Authentication")
 public class LoginTest extends BaseTest {
 
-    @Test(groups = "login")
+    @Test(groups = {"smoke", "sanity"})
     public void loginFlowStartsCorrectly() throws InterruptedException {
 
         // Click the login link to start auth flow
