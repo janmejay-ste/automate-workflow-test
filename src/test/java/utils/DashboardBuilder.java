@@ -11,6 +11,13 @@ import org.json.simple.JSONArray; // Added based on usage
 import org.json.simple.parser.JSONParser; // Added based on usage
 import org.slf4j.Logger; // Added based on usage
 import org.slf4j.LoggerFactory; // Added based on usage
+import utils.governance.GovernanceReportGenerator;
+import utils.governance.GovernanceSnapshotBuilder;
+import utils.governance.dto.GovernanceSnapshotDto;
+import utils.orchestration.OrchestrationSnapshotBuilder;
+import utils.orchestration.dto.OrchestrationSnapshotDto;
+import utils.orchestration.dto.SuitePriorityDto;
+import utils.orchestration.dto.WorkflowRiskDto;
 
 public final class DashboardBuilder {
   private static final Logger LOG = LoggerFactory.getLogger(DashboardBuilder.class);
@@ -24,6 +31,11 @@ public final class DashboardBuilder {
   }
 
   public static void write() {
+    write(null, null);
+  }
+
+  public static void write(utils.history.dto.TrendSnapshotDto trendSnapshot,
+                            utils.correlation.dto.CorrelationSnapshotDto correlationSnapshot) {
     try {
       JSONObject analytics = readAnalytics();
       List<TrendDataWriter.RunData> history = TrendDataWriter.readFullHistory();
@@ -38,7 +50,20 @@ public final class DashboardBuilder {
       HealthPolicy.ReleaseStatus releaseStatus = RiskInterpreter.interpret(
           score, smokePass, criticalBugs, regressionPass, locatorSamples);
 
-      String html = buildHtml(analytics, history, releaseStatus);
+      // Build orchestration snapshot when upstream data is available
+      OrchestrationSnapshotDto orchSnapshot = null;
+      GovernanceSnapshotDto govSnapshot = null;
+      if (trendSnapshot != null || correlationSnapshot != null) {
+        JSONArray testFailures = (JSONArray) analytics.get("testFailures");
+        try {
+          orchSnapshot = OrchestrationSnapshotBuilder.build(trendSnapshot, correlationSnapshot, testFailures);
+          govSnapshot  = GovernanceSnapshotBuilder.build(orchSnapshot);
+        } catch (Exception orchEx) {
+          LOG.warn("Orchestration/governance snapshot build failed — dashboard continues without it: {}", orchEx.getMessage());
+        }
+      }
+
+      String html = buildHtml(analytics, history, releaseStatus, orchSnapshot, govSnapshot, trendSnapshot, correlationSnapshot);
 
       Path out = Paths.get(REPORTS_DIR, "dashboard.html");
       Files.createDirectories(out.getParent());
@@ -62,6 +87,25 @@ public final class DashboardBuilder {
 
   private static String buildHtml(JSONObject analytics, List<TrendDataWriter.RunData> history,
       HealthPolicy.ReleaseStatus status) {
+    return buildHtml(analytics, history, status, null, null, null, null);
+  }
+
+  private static String buildHtml(JSONObject analytics, List<TrendDataWriter.RunData> history,
+      HealthPolicy.ReleaseStatus status, OrchestrationSnapshotDto orchSnapshot) {
+    return buildHtml(analytics, history, status, orchSnapshot, null, null, null);
+  }
+
+  private static String buildHtml(JSONObject analytics, List<TrendDataWriter.RunData> history,
+      HealthPolicy.ReleaseStatus status, OrchestrationSnapshotDto orchSnapshot,
+      GovernanceSnapshotDto govSnapshot) {
+    return buildHtml(analytics, history, status, orchSnapshot, govSnapshot, null, null);
+  }
+
+  private static String buildHtml(JSONObject analytics, List<TrendDataWriter.RunData> history,
+      HealthPolicy.ReleaseStatus status, OrchestrationSnapshotDto orchSnapshot,
+      GovernanceSnapshotDto govSnapshot,
+      utils.history.dto.TrendSnapshotDto trendSnapshot,
+      utils.correlation.dto.CorrelationSnapshotDto correlationSnapshot) {
     // Extract top-level context
     JSONObject metadata = (JSONObject) analytics.get("metadata");
     String environment = getString(metadata, "environment", "QA");
@@ -169,7 +213,93 @@ public final class DashboardBuilder {
         .replace("{{CHART_FAILED_TESTS}}", trend.failedTests.toJSONString())
         .replace("{{AVG_SCORE}}", String.format("%.1f", trend.avgScore))
         .replace("{{JS_ERRORS_MAX_HEIGHT}}", jsProdErrors != null && jsProdErrors.size() > 10 ? "360px" : "none")
-        .replace("{{CATEGORY_SUMMARY}}", ""); // Optional summary space
+        .replace("{{CATEGORY_SUMMARY}}", "") // Optional summary space
+        .replace("{{EXECUTIVE_PANEL}}", buildExecutivePanelHtml(analytics, status, trendSnapshot, correlationSnapshot, orchSnapshot, govSnapshot))
+        .replace("{{RELEASE_BLOCKERS}}", buildReleaseBlockersHtml(analytics, status, correlationSnapshot, orchSnapshot, trendSnapshot))
+        .replace("{{SEMANTIC_PANEL}}", buildSemanticPanelHtml())
+        .replace("{{CONFIDENCE_INDICATOR}}", buildConfidenceIndicatorHtml(analytics, trendSnapshot, govSnapshot))
+        .replace("{{DELTA_PANEL}}", buildDeltaHtml(history, analytics))
+        .replace("{{WORKFLOW_MATRIX}}", buildWorkflowMatrixHtml(orchSnapshot, correlationSnapshot))
+        .replace("{{ROOT_CAUSE_CLUSTERS}}", buildRootCauseClustersHtml(analytics, correlationSnapshot))
+        .replace("{{ORCHESTRATION_PANEL}}", buildOrchestrationHtml(orchSnapshot))
+        .replace("{{GOVERNANCE_PANEL}}", GovernanceReportGenerator.buildDashboardHtml(govSnapshot));
+  }
+
+  private static String buildOrchestrationHtml(OrchestrationSnapshotDto orch) {
+    if (orch == null) return "";
+
+    StringBuilder sb = new StringBuilder();
+    sb.append("<div class='section' style='margin-bottom:20px;'>");
+    sb.append("<div class='section-header'><div class='section-title'>Execution Intelligence");
+    sb.append(" <span style='font-size:11px;font-weight:500;color:#94a3b8;margin-left:8px;'>ADVISORY — human review required</span></div>");
+
+    // Strategy badge
+    String strategy = orch.executionPlan != null ? orch.executionPlan.strategy : "N/A";
+    String strategyColor = switch (strategy) {
+      case "CRITICAL_PATH_ONLY" -> "#ef4444";
+      case "RISK_WEIGHTED"      -> "#f97316";
+      case "STABILITY_FIRST"    -> "#f59e0b";
+      default                   -> "#10b981";
+    };
+    sb.append("<span style='padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;background:")
+      .append(strategyColor).append("22;color:").append(strategyColor).append(";'>")
+      .append(strategy).append("</span></div>");
+
+    // Strategy reason
+    if (orch.executionPlan != null && orch.executionPlan.strategyReason != null) {
+      sb.append("<p style='font-size:13px;color:#64748b;margin-bottom:16px;'>")
+        .append(orch.executionPlan.strategyReason).append("</p>");
+    }
+
+    // Risk summary cards
+    sb.append("<div style='display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;'>");
+    sb.append(orchCard("Critical Risk", String.valueOf(orch.criticalRiskCount), "#ef4444"));
+    sb.append(orchCard("High Risk", String.valueOf(orch.highRiskCount), "#f97316"));
+    sb.append(orchCard("Suppressed Retries", String.valueOf(orch.suppressedRetries), "#6366f1"));
+    sb.append(orchCard("CI Time Saving",
+        orch.executionPlan != null ? orch.executionPlan.estimatedTimeSavingPct + "%" : "N/A", "#10b981"));
+    sb.append("</div>");
+
+    // Risk hotspots table
+    if (orch.workflowRisks != null && !orch.workflowRisks.isEmpty()) {
+      sb.append("<div style='margin-bottom:16px;'><div style='font-size:13px;font-weight:600;color:#334155;margin-bottom:8px;'>Workflow Risk Hotspots</div>");
+      sb.append("<table style='width:100%;border-collapse:collapse;font-size:13px;'>");
+      sb.append("<thead><tr style='color:#64748b;font-size:11px;text-transform:uppercase;'>");
+      sb.append("<th style='padding:8px;text-align:left;'>Workflow</th><th>Risk</th><th>Stability</th><th>Driver</th></tr></thead><tbody>");
+      int shown = 0;
+      for (WorkflowRiskDto r : orch.workflowRisks) {
+        if (shown++ >= 8) break; // top 8
+        String rColor = switch (r.riskLevel != null ? r.riskLevel : "LOW") {
+          case "CRITICAL" -> "#ef4444"; case "HIGH" -> "#f97316"; case "MEDIUM" -> "#f59e0b"; default -> "#10b981";
+        };
+        sb.append("<tr style='border-bottom:1px solid #f1f5f9;'>")
+          .append("<td style='padding:8px;font-weight:500;'>").append(r.workflow).append("</td>")
+          .append("<td style='padding:8px;'><span style='padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;background:")
+          .append(rColor).append("22;color:").append(rColor).append(";'>").append(r.riskLevel).append("</span></td>")
+          .append("<td style='padding:8px;color:#64748b;'>").append(r.stabilityScore >= 0 ? r.stabilityScore : "N/A").append("</td>")
+          .append("<td style='padding:8px;color:#64748b;font-size:12px;'>").append(r.primaryDriver != null ? r.primaryDriver : "").append("</td>")
+          .append("</tr>");
+      }
+      sb.append("</tbody></table></div>");
+    }
+
+    // Minimization summary
+    if (orch.minimizationSummary != null && !orch.minimizationSummary.isBlank()) {
+      sb.append("<div style='background:#f8fafc;border-radius:8px;padding:12px 16px;font-size:12px;color:#475569;border-left:3px solid #6366f1;'>")
+        .append("<strong style='color:#334155;'>Minimization Advisory:</strong> ")
+        .append(orch.minimizationSummary).append("</div>");
+    }
+
+    sb.append("</div>"); // close section
+    return sb.toString();
+  }
+
+  private static String orchCard(String label, String value, String color) {
+    return String.format(
+        "<div style='background:white;border-radius:10px;padding:14px 16px;border:1px solid #e2e8f0;border-left:4px solid %s;'>" +
+        "<div style='font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;'>%s</div>" +
+        "<div style='font-size:26px;font-weight:800;color:%s;margin-top:4px;'>%s</div></div>",
+        color, label, color, value);
   }
 
   private static int prodCount(JSONObject jsRoot) {
@@ -311,10 +441,97 @@ public final class DashboardBuilder {
     StringBuilder sb = new StringBuilder();
     for (Object item : failures) {
       JSONObject f = (JSONObject) item;
-      sb.append(String.format("<tr><td>%s</td><td><div class='error-msg'>%s</div></td></tr>",
-          getString(f, "test", "Unknown"), getString(f, "reason", "")));
+      String test   = getString(f, "test",   "Unknown");
+      String reason = getString(f, "reason", "");
+
+      sb.append("<tr><td>").append(escHtml(test)).append("</td><td>");
+      sb.append("<div class='error-msg'>").append(escHtml(reason)).append("</div>");
+
+      // If the failure recorded structured URL findings (e.g. from HomepageExhaustiveTest),
+      // render them as a mini-table with severity badges and clickable URLs.
+      Object rawFindings = f.get("urlFindings");
+      if (rawFindings instanceof JSONArray urlFindings && !urlFindings.isEmpty()) {
+        sb.append(renderUrlFindingsDetail(urlFindings));
+      }
+
+      sb.append("</td></tr>");
     }
     return sb.toString();
+  }
+
+  /**
+   * Renders a compact, colour-coded table of broken URLs beneath the failure
+   * message in the Test Failure Details section.
+   *
+   * Columns: Severity badge | Type | HTTP Status | URL (linked) | Reason
+   */
+  @SuppressWarnings("unchecked")
+  private static String renderUrlFindingsDetail(JSONArray findings) {
+    StringBuilder s = new StringBuilder();
+    s.append("<div style='margin-top:10px;'>")
+     .append("<div style='font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;")
+     .append("letter-spacing:0.5px;margin-bottom:6px;'>")
+     .append("Broken / Unreachable URLs (").append(findings.size()).append(")</div>")
+     .append("<table style='width:100%;border-collapse:collapse;font-size:11.5px;'>")
+     .append("<thead><tr style='background:#f8fafc;'>")
+     .append("<th style='text-align:left;padding:5px 8px;border-bottom:1px solid #e2e8f0;width:76px;'>Severity</th>")
+     .append("<th style='text-align:left;padding:5px 8px;border-bottom:1px solid #e2e8f0;width:105px;'>Type</th>")
+     .append("<th style='text-align:right;padding:5px 8px;border-bottom:1px solid #e2e8f0;width:52px;'>Status</th>")
+     .append("<th style='text-align:left;padding:5px 8px;border-bottom:1px solid #e2e8f0;'>URL</th>")
+     .append("<th style='text-align:left;padding:5px 8px;border-bottom:1px solid #e2e8f0;'>Reason</th>")
+     .append("</tr></thead><tbody>");
+
+    for (Object o : findings) {
+      if (!(o instanceof JSONObject fi)) continue;
+      String url      = getString(fi, "url",      "");
+      String severity = getString(fi, "severity", "");
+      String type     = getString(fi, "type",     "");
+      int    status   = getInt(fi,   "status",    0);
+      String reason   = getString(fi, "reason",   "");
+
+      // Severity badge palette (mirrors UrlValidationComponent / SemanticPanelComponent)
+      String sevBg, sevFg;
+      switch (severity.toLowerCase()) {
+        case "critical" -> { sevBg = "#fee2e2"; sevFg = "#991b1b"; }
+        case "high"     -> { sevBg = "#fed7aa"; sevFg = "#9a3412"; }
+        case "medium"   -> { sevBg = "#fef3c7"; sevFg = "#854d0e"; }
+        case "low"      -> { sevBg = "#dbeafe"; sevFg = "#1e40af"; }
+        default         -> { sevBg = "#f1f5f9"; sevFg = "#475569"; }
+      }
+      String statusColor = status == 0   ? "#94a3b8"
+                         : status >= 500 ? "#ef4444"
+                         : status >= 400 ? "#f97316"
+                         :                "#10b981";
+      String statusText = status == 0 ? "—" : String.valueOf(status);
+
+      s.append("<tr>")
+       // Severity
+       .append("<td style='padding:5px 8px;border-bottom:1px solid #f1f5f9;vertical-align:top;'>")
+       .append("<span style='display:inline-block;padding:2px 8px;background:").append(sevBg)
+       .append(";color:").append(sevFg)
+       .append(";border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.3px;'>")
+       .append(escHtml(severity)).append("</span></td>")
+       // Type
+       .append("<td style='padding:5px 8px;border-bottom:1px solid #f1f5f9;color:#475569;vertical-align:top;'>")
+       .append(escHtml(type.replace('_', ' '))).append("</td>")
+       // Status
+       .append("<td style='padding:5px 8px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:700;")
+       .append("color:").append(statusColor).append(";font-variant-numeric:tabular-nums;vertical-align:top;'>")
+       .append(statusText).append("</td>")
+       // URL — clickable, monospaced, wraps at word breaks
+       .append("<td style='padding:5px 8px;border-bottom:1px solid #f1f5f9;word-break:break-all;vertical-align:top;'>")
+       .append("<a href='").append(escHtml(url)).append("' target='_blank' rel='noopener noreferrer' ")
+       .append("style='font-family:Consolas,\"Courier New\",monospace;font-size:11px;")
+       .append("color:#2563eb;text-decoration:none;'>")
+       .append(escHtml(url)).append("</a></td>")
+       // Reason
+       .append("<td style='padding:5px 8px;border-bottom:1px solid #f1f5f9;color:#64748b;vertical-align:top;'>")
+       .append(escHtml(reason)).append("</td>")
+       .append("</tr>");
+    }
+
+    s.append("</tbody></table></div>");
+    return s.toString();
   }
 
   private static String buildWarningRows(JSONArray warnings) {
@@ -328,6 +545,452 @@ public final class DashboardBuilder {
       sb.append(String.format("<tr><td>%s</td><td>%s</td></tr>", source, actualMsg));
     }
     return sb.toString();
+  }
+
+  // ── Executive Decision Panel ──────────────────────────────────────────────
+
+  private static String buildExecutivePanelHtml(JSONObject analytics, HealthPolicy.ReleaseStatus status,
+      utils.history.dto.TrendSnapshotDto trend,
+      utils.correlation.dto.CorrelationSnapshotDto corr,
+      OrchestrationSnapshotDto orch, GovernanceSnapshotDto gov) {
+
+    String primaryReason = derivePrimaryReason(analytics, status, corr, orch);
+    String action        = deriveRecommendedAction(status, corr, orch);
+    String riskLevel     = deriveRiskLevel(orch, status);
+    double confidence    = deriveConfidence(gov, trend);
+    int downstream = corr != null && corr.cascadeDetected && corr.cascadeFailure != null
+        ? Math.max(0, corr.cascadeFailure.affectedTests - 1) : 0;
+
+    String statusColor = switch (status) {
+      case BLOCKED -> "#ef4444"; case AT_RISK -> "#f97316"; case WARNING -> "#f59e0b"; default -> "#10b981";
+    };
+    String statusBg = switch (status) {
+      case BLOCKED -> "rgba(239,68,68,0.05)"; case AT_RISK -> "rgba(249,115,22,0.05)";
+      case WARNING -> "rgba(245,158,11,0.05)"; default -> "rgba(16,185,129,0.05)";
+    };
+    String confColor = confidence >= 0.80 ? "#10b981" : confidence >= 0.60 ? "#f59e0b" : "#ef4444";
+    String riskColor = switch (riskLevel) {
+      case "CRITICAL", "HIGH" -> "#ef4444"; case "MEDIUM" -> "#f59e0b"; default -> "#10b981";
+    };
+
+    StringBuilder sb = new StringBuilder();
+    sb.append("<div style='display:grid;grid-template-columns:70% 30%;gap:0;background:white;border-radius:16px;")
+      .append("border:1px solid #e2e8f0;overflow:hidden;margin-bottom:20px;box-shadow:0 2px 8px rgba(0,0,0,0.06);'>");
+
+    // LEFT — decision dominant
+    sb.append("<div style='padding:28px 32px;border-right:1px solid #f1f5f9;background:").append(statusBg).append(";'>")
+      .append("<div style='font-size:11px;font-weight:700;color:").append(statusColor)
+      .append(";text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;'>Release Decision</div>")
+      .append("<div style='font-size:36px;font-weight:900;color:").append(statusColor)
+      .append(";line-height:1;margin-bottom:12px;'>").append(status.label).append("</div>")
+      .append("<div style='font-size:16px;font-weight:600;color:#1e293b;margin-bottom:6px;'>")
+      .append(escHtml(primaryReason)).append("</div>");
+    if (downstream > 0) {
+      sb.append("<div style='font-size:13px;color:#64748b;'>")
+        .append(downstream).append(" downstream failure").append(downstream > 1 ? "s" : "")
+        .append(" across cascaded workflows.</div>");
+    }
+    sb.append("</div>");
+
+    // RIGHT — metadata
+    // Confidence: qualitative label only (avoids false numeric precision)
+    String confLabel = confidence >= 0.80 ? "HIGH" : confidence >= 0.60 ? "MODERATE" : "LOW";
+    sb.append("<div style='padding:28px 24px;display:flex;flex-direction:column;gap:16px;'>")
+      .append("<div title='").append(String.format("Computed: %.0f%%", confidence * 100)).append("'>")
+      .append("<div style='font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px;'>Confidence</div>")
+      .append("<div style='font-size:22px;font-weight:900;color:").append(confColor).append(";'>").append(confLabel).append("</div></div>")
+      .append("<div><div style='font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px;'>Risk Level</div>")
+      .append("<div style='font-size:17px;font-weight:700;color:").append(riskColor).append(";'>").append(riskLevel).append("</div></div>")
+      .append("<div><div style='font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px;'>Action</div>")
+      .append("<div style='font-size:13px;font-weight:500;color:#334155;line-height:1.4;'>").append(escHtml(action)).append("</div></div>")
+      // Governance disclaimer — mandatory at this authority level
+      .append("<div style='margin-top:auto;padding-top:12px;border-top:1px solid #f1f5f9;font-size:10px;color:#94a3b8;line-height:1.5;'>")
+      .append("Advisory system only.<br>Final release decisions require human review.")
+      .append("</div>")
+      .append("</div>");
+
+    sb.append("</div>");
+    return sb.toString();
+  }
+
+  private static String derivePrimaryReason(JSONObject a, HealthPolicy.ReleaseStatus status,
+      utils.correlation.dto.CorrelationSnapshotDto corr, OrchestrationSnapshotDto orch) {
+    if (corr != null && corr.cascadeDetected && corr.cascadeFailure != null)
+      return corr.cascadeFailure.rootWorkflow + " regression detected";
+    if (getInt(a, "criticalProductBugs", 0) > 0)
+      return "Critical product bugs detected";
+    if (getDouble(a, "smokePassRate", 1.0) < 0.90)
+      return "Smoke suite pass rate below threshold";
+    if (getDouble(a, "regressionPassRate", 1.0) < 1.0) {
+      int f = getInt(a, "failedCount", 0);
+      return f + " test failure" + (f > 1 ? "s" : "") + " in regression suite";
+    }
+    if (orch != null && orch.criticalRiskCount > 0)
+      return orch.criticalRiskCount + " critical-risk workflow" + (orch.criticalRiskCount > 1 ? "s" : "") + " detected";
+    return switch (status) {
+      case WARNING -> "Minor quality degradation detected";
+      case READY   -> "All quality criteria met";
+      default      -> "Quality gate analysis complete";
+    };
+  }
+
+  private static String deriveRecommendedAction(HealthPolicy.ReleaseStatus status,
+      utils.correlation.dto.CorrelationSnapshotDto corr, OrchestrationSnapshotDto orch) {
+    if (corr != null && corr.cascadeDetected && corr.cascadeFailure != null)
+      return "Fix " + corr.cascadeFailure.rootWorkflow + " first, then rerun";
+    return switch (status) {
+      case BLOCKED -> "Resolve blocking failures before release";
+      case AT_RISK -> "Review failures and rerun affected suites";
+      case WARNING -> "Review warnings, proceed with caution";
+      default      -> "Ready to release";
+    };
+  }
+
+  private static String deriveRiskLevel(OrchestrationSnapshotDto orch, HealthPolicy.ReleaseStatus status) {
+    if (orch != null) {
+      if (orch.criticalRiskCount > 0) return "CRITICAL";
+      if (orch.highRiskCount > 0)     return "HIGH";
+    }
+    return switch (status) {
+      case BLOCKED -> "HIGH"; case AT_RISK -> "MEDIUM"; case WARNING -> "LOW"; default -> "NONE";
+    };
+  }
+
+  private static double deriveConfidence(GovernanceSnapshotDto gov, utils.history.dto.TrendSnapshotDto trend) {
+    double conf = 0.75;
+    if (gov != null) {
+      if (gov.violationCount > 0)            conf -= 0.10;
+      if (gov.confirmedFalseSuppressions > 0) conf -= 0.15;
+      if (gov.guardedToAdvisoryCount > 3)    conf -= 0.05;
+      if ("HEALTHY".equals(gov.governanceHealth)) conf += 0.10;
+    }
+    if (trend != null) {
+      if (trend.regressionSpikeActive) conf -= 0.05;
+    }
+    return Math.min(1.0, Math.max(0.30, conf));
+  }
+
+  // ── Release Blockers ──────────────────────────────────────────────────────
+
+  private static String buildReleaseBlockersHtml(JSONObject analytics, HealthPolicy.ReleaseStatus status,
+      utils.correlation.dto.CorrelationSnapshotDto corr, OrchestrationSnapshotDto orch,
+      utils.history.dto.TrendSnapshotDto trend) {
+
+    java.util.List<String[]> items = new java.util.ArrayList<>();
+
+    if (corr != null && corr.cascadeDetected && corr.cascadeFailure != null)
+      items.add(new String[]{"BLOCKING", corr.cascadeFailure.rootWorkflow + " workflow failing — root of cascade"});
+
+    double smokePass = getDouble(analytics, "smokePassRate", 1.0);
+    if (smokePass < 0.90)
+      items.add(new String[]{"BLOCKING", String.format("Smoke pass rate %.0f%% — below 90%% threshold", smokePass * 100)});
+
+    int critBugs = getInt(analytics, "criticalProductBugs", 0);
+    if (critBugs > 0)
+      items.add(new String[]{"BLOCKING", critBugs + " critical product bug" + (critBugs > 1 ? "s" : "") + " — must fix before release"});
+
+    if (orch != null && orch.criticalRiskCount > 0)
+      items.add(new String[]{"BLOCKING", orch.criticalRiskCount + " critical-risk workflow" + (orch.criticalRiskCount > 1 ? "s" : "") + " — critical path at risk"});
+
+    if (trend != null && trend.regressionSpikeActive)
+      items.add(new String[]{"WARNING", "Regression spike active — sustained degradation detected across recent runs"});
+
+    double regPass = getDouble(analytics, "regressionPassRate", 1.0);
+    if (regPass < 1.0 && (corr == null || !corr.cascadeDetected)) {
+      int fc = getInt(analytics, "failedCount", 0);
+      // Subject-verb agreement: singular "failure requires", plural "failures require".
+      // The fc==0 branch is defensive — post the AnalyticsCollector dual-truth fix it
+      // should be unreachable (regPass < 1.0 implies fc > 0), but keep the safety net.
+      if (fc == 1) {
+        items.add(new String[]{"WARNING", "1 regression test failure requires investigation"});
+      } else if (fc > 1) {
+        items.add(new String[]{"WARNING", fc + " regression test failures require investigation"});
+      }
+    }
+
+    if (orch != null && orch.highRiskCount > 0)
+      items.add(new String[]{"WARNING", orch.highRiskCount + " high-risk workflow" + (orch.highRiskCount > 1 ? "s" : "") + " — monitor closely"});
+
+    if (status == HealthPolicy.ReleaseStatus.READY && items.isEmpty()) {
+      items.add(new String[]{"OK", "All quality gates passed"});
+      items.add(new String[]{"OK", "No critical failures detected"});
+      items.add(new String[]{"OK", "Regression suite fully passing"});
+    }
+
+    if (items.isEmpty()) return "";
+
+    long blockingCount = items.stream().filter(b -> "BLOCKING".equals(b[0])).count();
+    StringBuilder sb = new StringBuilder();
+    sb.append("<div style='background:white;border-radius:12px;border:1px solid #e2e8f0;padding:20px 24px;margin-bottom:20px;box-shadow:0 1px 4px rgba(0,0,0,0.06);'>")
+      .append("<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;'>")
+      .append("<div style='font-size:15px;font-weight:700;color:#1e293b;'>Release Blockers</div>");
+    if (blockingCount > 0)
+      sb.append("<span style='background:#fee2e2;color:#dc2626;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;'>").append(blockingCount).append(" blocking</span>");
+    else
+      sb.append("<span style='background:#dcfce7;color:#16a34a;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;'>All clear</span>");
+    sb.append("</div><div style='display:flex;flex-direction:column;gap:8px;'>");
+
+    for (String[] item : items) {
+      String icon, color, bg;
+      if ("BLOCKING".equals(item[0])) { icon = "✕"; color = "#dc2626"; bg = "#fee2e2"; }
+      else if ("WARNING".equals(item[0])) { icon = "⚠"; color = "#d97706"; bg = "#fef3c7"; }
+      else                               { icon = "✓"; color = "#16a34a"; bg = "#dcfce7"; }
+      sb.append("<div style='display:flex;align-items:flex-start;gap:10px;padding:8px 12px;background:").append(bg)
+        .append(";border-radius:8px;'>")
+        .append("<span style='font-size:14px;font-weight:700;color:").append(color).append(";flex-shrink:0;'>").append(icon).append("</span>")
+        .append("<span style='font-size:13px;color:#334155;font-weight:").append("BLOCKING".equals(item[0]) ? "600" : "400").append(";'>").append(escHtml(item[1])).append("</span>")
+        .append("</div>");
+    }
+    sb.append("</div></div>");
+    return sb.toString();
+  }
+
+  // ── Semantic Panel — delegated to SemanticPanelComponent ─────────────────
+  //
+  // The entire ~300-line inline rendering of the Semantic Health section
+  // (layered scores, per-domain panels, reliability table, telemetry footnote)
+  // has been lifted out to utils.dashboard.components.SemanticPanelComponent
+  // as the first step of the planned componentization.  This file is becoming
+  // an orchestrator — placeholder wiring + glue — not a template engine.
+  //
+  // The component owns all the inline CSS, badge styling, and grid layout for
+  // its section.  DashboardBuilder no longer carries semantic-panel helpers
+  // (scoreCard, severityBadge, domainBadge, confidenceBadge, escapeHtml,
+  //  renderPerDomainPanels, renderDomainPanel) — they all moved with it.
+  private static String buildSemanticPanelHtml() {
+    // Concatenate the Semantic Health panel + the new URL Validation panel.
+    // Both are render-only consumers of health_snapshot.json and degrade
+    // gracefully (return "") when their respective blocks are absent.
+    return utils.dashboard.components.SemanticPanelComponent.render()
+         + utils.dashboard.components.UrlValidationComponent.render();
+  }
+
+  // ── Confidence Indicator ──────────────────────────────────────────────────
+
+  private static String buildConfidenceIndicatorHtml(JSONObject analytics,
+      utils.history.dto.TrendSnapshotDto trend, GovernanceSnapshotDto gov) {
+    double confidence  = deriveConfidence(gov, trend);
+    // Use qualitative labels — avoid fake numeric precision
+    String confLabel   = confidence >= 0.80 ? "HIGH" : confidence >= 0.60 ? "MODERATE" : "LOW";
+    String confColor   = confidence >= 0.80 ? "#10b981" : confidence >= 0.60 ? "#f59e0b" : "#ef4444";
+    String qualLabel   = confidence >= 0.80 ? "STRONG" : confidence >= 0.60 ? "MODERATE" : "WEAK";
+    String signalTrust = trend != null && trend.overallConfidenceLabel != null ? trend.overallConfidenceLabel : "MODERATE";
+    int aiAnalyzed     = getInt(analytics, "aiAnalyzedCount", 0);
+    String numericTip  = String.format("Computed: %.0f%%", confidence * 100);
+
+    StringBuilder sb = new StringBuilder();
+    sb.append("<div style='background:white;border-radius:12px;border:1px solid #e2e8f0;padding:14px 20px;margin-bottom:20px;")
+      .append("display:flex;align-items:center;gap:24px;box-shadow:0 1px 4px rgba(0,0,0,0.04);flex-wrap:wrap;'>")
+      .append("<div title='").append(numericTip).append("'>")
+      .append("<div style='font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.8px;'>Release Confidence</div>")
+      .append("<div style='font-size:22px;font-weight:900;color:").append(confColor).append(";margin-top:2px;'>").append(confLabel).append("</div></div>")
+      .append("<div style='width:1px;height:36px;background:#e2e8f0;flex-shrink:0;'></div>")
+      .append("<div><div style='font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.8px;'>Evidence Quality</div>")
+      .append("<div style='font-size:16px;font-weight:700;color:").append(confColor).append(";margin-top:2px;'>").append(qualLabel).append("</div></div>")
+      .append("<div style='width:1px;height:36px;background:#e2e8f0;flex-shrink:0;'></div>")
+      .append("<div><div style='font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.8px;'>Signal Trust</div>")
+      .append("<div style='font-size:16px;font-weight:700;color:#334155;margin-top:2px;'>").append(escHtml(signalTrust)).append("</div></div>");
+    if (aiAnalyzed > 0)
+      sb.append("<div style='width:1px;height:36px;background:#e2e8f0;flex-shrink:0;'></div>")
+        .append("<div><div style='font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.8px;'>AI Analyzed</div>")
+        .append("<div style='font-size:16px;font-weight:700;color:#6366f1;margin-top:2px;'>").append(aiAnalyzed).append(" tests</div></div>");
+    sb.append("<div style='margin-left:auto;font-size:11px;color:#94a3b8;font-style:italic;'>Advisory · hover for numeric estimate</div>")
+      .append("</div>");
+    return sb.toString();
+  }
+
+  // ── Delta Panel ───────────────────────────────────────────────────────────
+
+  @SuppressWarnings("unchecked")
+  private static String buildDeltaHtml(List<TrendDataWriter.RunData> history, JSONObject analytics) {
+    if (history == null || history.size() < 2) return "";
+    TrendDataWriter.RunData cur  = history.get(history.size() - 1);
+    TrendDataWriter.RunData prev = history.get(history.size() - 2);
+
+    java.util.List<String[]> changes = new java.util.ArrayList<>();
+
+    int scoreDelta = cur.score - prev.score;
+    if (scoreDelta > 0) changes.add(new String[]{"IMPROVED",  "Health score +" + scoreDelta + " pts (" + prev.score + " → " + cur.score + ")"});
+    else if (scoreDelta < 0) changes.add(new String[]{"REGRESSED", "Health score " + scoreDelta + " pts (" + prev.score + " → " + cur.score + ")"});
+
+    int jsDelta = cur.jsErrors - prev.jsErrors;
+    if (jsDelta < 0) changes.add(new String[]{"IMPROVED",  Math.abs(jsDelta) + " fewer JS error" + (Math.abs(jsDelta) > 1 ? "s" : "") + " than previous run"});
+    else if (jsDelta > 0) changes.add(new String[]{"NEW", jsDelta + " new JS error" + (jsDelta > 1 ? "s" : "") + " since previous run"});
+
+    int testDelta = cur.failedTests - prev.failedTests;
+    if (testDelta < 0) changes.add(new String[]{"RESOLVED",  Math.abs(testDelta) + " fewer test failure" + (Math.abs(testDelta) > 1 ? "s" : "") + " than previous run"});
+    else if (testDelta > 0) changes.add(new String[]{"NEW", testDelta + " additional test failure" + (testDelta > 1 ? "s" : "") + " detected"});
+
+    if (!cur.status.equals(prev.status)) {
+      if ("READY".equals(cur.status))
+        changes.add(new String[]{"IMPROVED", "Status improved: " + prev.status + " → " + cur.status});
+      else if ("BLOCKED".equals(cur.status) || "AT_RISK".equals(cur.status))
+        changes.add(new String[]{"REGRESSED", "Status regressed: " + prev.status + " → " + cur.status});
+    }
+
+    if (changes.isEmpty())
+      changes.add(new String[]{"IMPROVED", "No significant changes from previous run"});
+
+    long worsened  = changes.stream().filter(c -> "NEW".equals(c[0]) || "REGRESSED".equals(c[0])).count();
+    long improved  = changes.stream().filter(c -> "RESOLVED".equals(c[0]) || "IMPROVED".equals(c[0])).count();
+
+    StringBuilder sb = new StringBuilder();
+    sb.append("<div style='background:white;border-radius:12px;border:1px solid #e2e8f0;padding:20px 24px;margin-bottom:20px;box-shadow:0 1px 4px rgba(0,0,0,0.06);'>")
+      .append("<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;'>")
+      .append("<div style='font-size:15px;font-weight:700;color:#1e293b;'>What Changed Since Last Run?</div>")
+      .append("<div style='display:flex;gap:8px;'>");
+    if (worsened > 0)
+      sb.append("<span style='background:#fee2e2;color:#dc2626;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;'>").append(worsened).append(" new / worsened</span>");
+    if (improved > 0)
+      sb.append("<span style='background:#dcfce7;color:#16a34a;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;'>").append(improved).append(" improved</span>");
+    sb.append("</div></div><div style='display:flex;flex-direction:column;gap:4px;'>");
+
+    for (String[] item : changes) {
+      String badge, color;
+      switch (item[0]) {
+        case "NEW"       -> { badge = "NEW";      color = "#dc2626"; }
+        case "REGRESSED" -> { badge = "WORSENED"; color = "#f97316"; }
+        case "RESOLVED"  -> { badge = "RESOLVED"; color = "#16a34a"; }
+        default          -> { badge = "IMPROVED"; color = "#10b981"; }
+      }
+      sb.append("<div style='display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #f8fafc;'>")
+        .append("<span style='font-size:10px;font-weight:700;color:").append(color).append(";background:").append(color).append("18;")
+        .append("padding:2px 8px;border-radius:4px;min-width:76px;text-align:center;'>").append(badge).append("</span>")
+        .append("<span style='font-size:13px;color:#334155;'>").append(escHtml(item[1])).append("</span>")
+        .append("</div>");
+    }
+    sb.append("</div></div>");
+    return sb.toString();
+  }
+
+  // ── Workflow Health Matrix ────────────────────────────────────────────────
+
+  private static String buildWorkflowMatrixHtml(OrchestrationSnapshotDto orch,
+      utils.correlation.dto.CorrelationSnapshotDto corr) {
+    if (orch == null || orch.workflowRisks == null || orch.workflowRisks.isEmpty()) return "";
+
+    StringBuilder sb = new StringBuilder();
+    sb.append("<div class='section' style='margin-bottom:20px;'>")
+      .append("<div class='section-header'>")
+      .append("<div class='section-title'>Workflow Health Matrix</div>")
+      .append("<span style='font-size:12px;color:#94a3b8;cursor:default;'>Click row to expand details</span></div>")
+      .append("<table style='width:100%;border-collapse:collapse;'>")
+      .append("<thead><tr style='font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;'>")
+      .append("<th style='padding:10px 12px;text-align:left;border-bottom:2px solid #f1f5f9;'>Workflow</th>")
+      .append("<th style='padding:10px 12px;text-align:center;border-bottom:2px solid #f1f5f9;'>Health</th>")
+      .append("<th style='padding:10px 12px;text-align:center;border-bottom:2px solid #f1f5f9;'>Trend</th>")
+      .append("</tr></thead><tbody>");
+
+    for (int i = 0; i < orch.workflowRisks.size(); i++) {
+      WorkflowRiskDto r = orch.workflowRisks.get(i);
+      String rLevel = r.riskLevel != null ? r.riskLevel : "LOW";
+      String rColor = switch (rLevel) {
+        case "CRITICAL" -> "#ef4444"; case "HIGH" -> "#f97316"; case "MEDIUM" -> "#f59e0b"; default -> "#10b981";
+      };
+      boolean isCascadeRoot = corr != null && corr.cascadeDetected && corr.cascadeFailure != null
+          && r.workflow != null && r.workflow.equals(corr.cascadeFailure.rootWorkflow);
+      String trendIcon  = r.stabilityScore >= 85 ? "→" : r.stabilityScore >= 60 ? "↘" : "↓";
+      String trendColor = r.stabilityScore >= 85 ? "#10b981" : r.stabilityScore >= 60 ? "#f59e0b" : "#ef4444";
+      String detailId   = "wf-detail-" + i;
+
+      sb.append("<tr onclick='toggleWfDetail(\"").append(detailId).append("\")' ")
+        .append("style='cursor:pointer;border-bottom:1px solid #f1f5f9;' ")
+        .append("onmouseover='this.style.background=\"#f8fafc\"' onmouseout='this.style.background=\"\"'>")
+        .append("<td style='padding:12px;font-size:13px;font-weight:500;color:#1e293b;'>");
+      if (isCascadeRoot)
+        sb.append("<span style='background:#fee2e2;color:#dc2626;font-size:9px;font-weight:700;padding:1px 6px;border-radius:3px;margin-right:6px;'>ROOT</span>");
+      sb.append(escHtml(r.workflow)).append("</td>")
+        .append("<td style='padding:12px;text-align:center;'>")
+        .append("<span style='padding:3px 10px;border-radius:4px;font-size:11px;font-weight:700;background:").append(rColor)
+        .append("18;color:").append(rColor).append(";'>").append(rLevel).append("</span></td>")
+        .append("<td style='padding:12px;text-align:center;font-size:20px;font-weight:700;color:").append(trendColor).append(";'>")
+        .append(trendIcon).append("</td></tr>");
+
+      // Detail row (hidden by default)
+      sb.append("<tr id='").append(detailId).append("' style='display:none;background:#f8fafc;'>")
+        .append("<td colspan='3' style='padding:12px 16px;'>")
+        .append("<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;font-size:12px;'>")
+        .append("<div><div style='font-weight:600;color:#64748b;margin-bottom:4px;'>Stability Score</div>")
+        .append("<div style='color:#1e293b;font-weight:500;'>").append(r.stabilityScore >= 0 ? r.stabilityScore : "N/A").append("</div></div>")
+        .append("<div><div style='font-weight:600;color:#64748b;margin-bottom:4px;'>Primary Driver</div>")
+        .append("<div style='color:#1e293b;'>").append(r.primaryDriver != null ? escHtml(r.primaryDriver) : "—").append("</div></div>")
+        .append("<div><div style='font-weight:600;color:#64748b;margin-bottom:4px;'>Downstream Impact</div>")
+        .append("<div style='color:#1e293b;'>").append(r.downstreamImpact > 0 ? r.downstreamImpact + " tests" : "None").append("</div></div>");
+      if (isCascadeRoot)
+        sb.append("<div style='grid-column:1/-1;background:#fee2e2;padding:8px 10px;border-radius:6px;color:#dc2626;font-weight:500;font-size:12px;'>")
+          .append("Cascade root — fix this first. Downstream retries suppressed until this resolves.</div>");
+      sb.append("</div></td></tr>");
+    }
+
+    sb.append("</tbody></table></div>");
+    return sb.toString();
+  }
+
+  // ── Root Cause Clusters ───────────────────────────────────────────────────
+
+  private static String buildRootCauseClustersHtml(JSONObject analytics,
+      utils.correlation.dto.CorrelationSnapshotDto corr) {
+    JSONObject failTypes  = (JSONObject) analytics.get("failureTypeCounts");
+    JSONArray  testFails  = (JSONArray)  analytics.get("testFailures");
+    if (failTypes == null || testFails == null || testFails.isEmpty()) return "";
+
+    int productBugs = getInt(failTypes, "PRODUCT_BUG", 0);
+    int autoBugs    = getInt(failTypes, "AUTOMATION_BUG", 0);
+    int envIssues   = getInt(failTypes, "ENVIRONMENT", 0);
+    if (productBugs + autoBugs + envIssues == 0 && (corr == null || !corr.cascadeDetected)) return "";
+
+    StringBuilder sb = new StringBuilder();
+    sb.append("<div class='section' style='margin-bottom:20px;'>")
+      .append("<div class='section-header'><div class='section-title'>Root Cause Clusters</div></div>")
+      .append("<div style='display:flex;flex-direction:column;gap:10px;'>");
+
+    if (corr != null && corr.cascadeDetected && corr.cascadeFailure != null)
+      sb.append(clusterCard("CASCADE FAILURE",
+          "Cascade: " + corr.cascadeFailure.rootWorkflow,
+          corr.cascadeFailure.affectedTests + " tests affected — fix root workflow first",
+          "#ef4444", "91% confidence · Root cause identified", false));
+
+    if (productBugs > 0)
+      sb.append(clusterCard("PRODUCT BUG",
+          productBugs + " Product Bug" + (productBugs > 1 ? "s" : ""),
+          "Feature regressions confirmed — requires developer investigation",
+          "#f97316", "High confidence · Developer fix required", corr != null && corr.cascadeDetected));
+
+    if (autoBugs > 0)
+      sb.append(clusterCard("AUTOMATION",
+          autoBugs + " Automation Bug" + (autoBugs > 1 ? "s" : ""),
+          "Test code issue — not a product regression",
+          "#6366f1", "Moderate confidence · Update test selectors / logic", true));
+
+    if (envIssues > 0)
+      sb.append(clusterCard("ENVIRONMENT",
+          envIssues + " Environment Issue" + (envIssues > 1 ? "s" : ""),
+          "Infrastructure or dependency failures",
+          "#64748b", "Moderate confidence · Check infrastructure health", true));
+
+    sb.append("</div></div>");
+    return sb.toString();
+  }
+
+  private static String clusterCard(String type, String title, String subtitle,
+      String color, String confidence, boolean collapsed) {
+    String bg = color + "10";
+    return "<div style='border:1px solid " + color + "40;border-radius:10px;overflow:hidden;'>" +
+        "<div style='background:" + bg + ";padding:14px 16px;border-left:4px solid " + color +
+        ";display:flex;justify-content:space-between;align-items:center;'>" +
+        "<div><span style='font-size:10px;font-weight:700;color:" + color +
+        ";text-transform:uppercase;letter-spacing:0.8px;'>" + type + "</span>" +
+        "<div style='font-size:14px;font-weight:700;color:#1e293b;margin-top:2px;'>" + escHtml(title) + "</div>" +
+        "<div style='font-size:12px;color:#64748b;margin-top:2px;'>" + escHtml(subtitle) + "</div></div>" +
+        "<div style='font-size:11px;color:" + color + ";font-weight:500;text-align:right;max-width:200px;'>" +
+        escHtml(confidence) + "</div></div></div>";
+  }
+
+  // ── Shared helper ─────────────────────────────────────────────────────────
+
+  private static String escHtml(String s) {
+    if (s == null) return "";
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
   }
 
   private static class TrendAnalysis {
@@ -470,6 +1133,38 @@ public final class DashboardBuilder {
         }
         .header-chip strong { color: #e2e8f0; }
         .header-right { display: flex; align-items: center; gap: 20px; }
+        /*
+         * Export menu — buttons that download the pre-rendered PDFs sitting
+         * next to the dashboard HTML.  Never wire these to window.print(); the
+         * PDFs are produced by a separate semantic renderer for a reason.
+         */
+        .export-menu { display: flex; gap: 8px; }
+        .export-btn {
+          display: inline-flex; align-items: center; gap: 6px;
+          padding: 7px 12px; border-radius: 6px;
+          background: #fff; border: 1px solid #cbd5e1;
+          color: #334155; font-size: 12px; font-weight: 600;
+          text-decoration: none; cursor: pointer;
+          transition: all 0.15s ease;
+        }
+        .export-btn:hover { border-color: #3b82f6; color: #1d4ed8; background: #eff6ff; }
+        .export-btn-exec:hover { border-color: #16a34a; color: #166534; background: #f0fdf4; }
+        .export-btn-tech:hover { border-color: #6366f1; color: #3730a3; background: #eef2ff; }
+        .export-icon { font-size: 14px; line-height: 1; }
+        .export-label { letter-spacing: 0.3px; }
+
+        /*
+         * Legacy sections — visually de-emphasised so the semantic panel reads
+         * as the authoritative source.  Kept accessible via collapsed details
+         * for forensic drill-down but never the first thing the eye lands on.
+         */
+        .legacy-section { margin-bottom: 16px; }
+        .legacy-section[open] { background: #fff !important; border-color: #cbd5e1 !important; }
+        .legacy-section summary:hover { background: #f1f5f9; border-radius: 8px 8px 0 0; }
+        .legacy-section summary::marker { color: #94a3b8; }
+        .legacy-score { opacity: 0.78; transition: opacity 0.18s ease; }
+        .legacy-score:hover { opacity: 1; }
+
         .score-ring {
           display: flex; flex-direction: column; align-items: center;
           background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
@@ -489,7 +1184,7 @@ public final class DashboardBuilder {
         .status-atrisk { color: #f97316; background: rgba(249,115,22,0.1); }
         .status-critical { color: #ef4444; background: rgba(239,68,68,0.1); }
         /* ── Stat Cards ── */
-        .stats-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin-bottom: 24px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
         .stat-card {
           background: white; border-radius: 12px; padding: 14px 16px;
           box-shadow: 0 1px 3px rgba(0,0,0,0.07); border: 1px solid #e2e8f0;
@@ -745,9 +1440,73 @@ public final class DashboardBuilder {
       .dot-pass { background: #10b981; }
       .dot-fail { background: #ef4444; }
 
-      /* Responsive */
+      /* ── Sticky Nav Tabs ── */
+      .sticky-nav {
+        position: sticky; top: 0; z-index: 200;
+        background: rgba(240, 244, 248, 0.95);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        padding: 8px 0 10px;
+        margin-bottom: 16px;
+        border-bottom: 1px solid rgba(226,232,240,0.7);
+      }
+      .sticky-nav-inner {
+        display: flex; gap: 4px;
+        background: white; border-radius: 10px; padding: 4px;
+        border: 1px solid #e2e8f0;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+        overflow-x: auto; scrollbar-width: none;
+      }
+      .sticky-nav-inner::-webkit-scrollbar { display: none; }
+      .nav-tab {
+        padding: 6px 16px; border-radius: 7px; font-size: 13px; font-weight: 500;
+        color: #64748b; text-decoration: none; white-space: nowrap;
+        transition: all 0.15s; border: none; background: none; cursor: pointer;
+      }
+      .nav-tab:hover { background: #f1f5f9; color: #1e293b; }
+      .nav-tab.active { background: #6366f1; color: white; font-weight: 600; }
+      /* scroll-margin-top so sections don't hide behind sticky nav */
+      [data-section] { scroll-margin-top: 64px; }
+      /* ── Global Search ── */
+      .global-search-wrap { position: relative; margin-bottom: 16px; }
+      .global-search {
+        width: 100%; padding: 10px 16px 10px 40px;
+        border: 1.5px solid #e2e8f0; border-radius: 10px;
+        font-size: 14px; background: white; color: #1e293b;
+        transition: border-color 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+      }
+      .global-search:focus { outline: none; border-color: #6366f1; }
+      .global-search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 16px; pointer-events: none; }
+      .search-highlight { background: #fef9c3; border-radius: 2px; }
+      /* ── Severity Filter Chips ── */
+      .sev-filter-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
+      .sev-chip {
+        padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+        border: 1.5px solid #e2e8f0; background: white; cursor: pointer; color: #64748b;
+        transition: all 0.15s;
+      }
+      .sev-chip:hover { border-color: #94a3b8; color: #334155; }
+      .sev-chip.active { background: #1e293b; color: white; border-color: #1e293b; }
+      .sev-chip.chip-critical.active { background: #ef4444; border-color: #ef4444; }
+      .sev-chip.chip-cascade.active  { background: #f97316; border-color: #f97316; }
+      .sev-chip.chip-new.active      { background: #dc2626; border-color: #dc2626; }
+      .sev-chip.chip-gov.active      { background: #6366f1; border-color: #6366f1; }
+      /* ── Appendix / details ── */
+      details.appendix { background: white; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 20px; }
+      details.appendix > summary {
+        padding: 16px 24px; font-size: 14px; font-weight: 600; color: #64748b;
+        cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px;
+      }
+      details.appendix > summary::before { content: '▶'; font-size: 10px; transition: transform 0.2s; }
+      details.appendix[open] > summary::before { transform: rotate(90deg); }
+      details.appendix > .appendix-body { padding: 0 24px 20px; }
+      /* ── Passed tests collapsed by default ── */
+      .tests-passed-row { display: none; }
+      .tests-passed-row.visible { display: table-row; }
+      .show-passed-toggle { cursor: pointer; font-size: 12px; color: #6366f1; font-weight: 600; background: none; border: none; padding: 6px 0; }
+      /* ── Responsive ── */
       @media (max-width: 1200px) {
-        .stats-grid { grid-template-columns: repeat(3, 1fr); }
+        .stats-grid { grid-template-columns: repeat(2, 1fr); }
         .two-col { grid-template-columns: 1fr; }
         .chart-row { grid-template-columns: 1fr; }
       }
@@ -765,8 +1524,21 @@ public final class DashboardBuilder {
       <body>
 
       <div class="container">
+        <!-- Sticky Navigation Tabs -->
+        <div class="sticky-nav">
+          <div class="sticky-nav-inner">
+            <button class="nav-tab active" onclick="navTo('sec-overview')">Overview</button>
+            <button class="nav-tab" onclick="navTo('sec-workflows')">Workflows</button>
+            <button class="nav-tab" onclick="navTo('sec-failures')">Failures</button>
+            <button class="nav-tab" onclick="navTo('sec-trends')">Trends</button>
+            <button class="nav-tab" onclick="navTo('sec-governance')">Governance</button>
+            <button class="nav-tab" onclick="navTo('sec-runs')">Test Runs</button>
+            <button class="nav-tab" onclick="navTo('sec-appendix')">Appendix</button>
+          </div>
+        </div>
+
         <!-- Header -->
-        <div class="header">
+        <div class="header" data-section id="sec-overview">
           <div class="header-left">
             <div class="header-title">Health Dashboard</div>
             <div class="header-chips">
@@ -775,47 +1547,112 @@ public final class DashboardBuilder {
               <span class="header-chip">Suite: <strong>{{SUITE}}</strong></span>
               <span class="header-chip">Branch: <strong>{{GIT}}</strong></span>
               <span class="header-chip">Duration: <strong>{{DURATION}}</strong></span>
-              <span class="header-chip">Penalty: <strong>{{PENALTY_POINTS}} pts</strong></span>
             </div>
           </div>
           <div class="header-right">
+            <!--
+              Export menu — these link directly to the PDFs generated by
+              PdfReportBuilder during BaseTest.afterSuite().  They are NOT a
+              browser print-to-PDF: clicking them downloads the same semantic
+              renderer's output that goes to CI artefacts.  This guarantees the
+              shared PDF matches what the build emitted, byte-for-byte.
+            -->
+            <div class="export-menu" title="Pre-rendered PDF reports from this run">
+              <a class="export-btn export-btn-exec" href="executive_report.pdf" download
+                 title="Executive summary — for managers, release reviewers, stakeholders">
+                <span class="export-icon">📄</span>
+                <span class="export-label">Executive PDF</span>
+              </a>
+              <a class="export-btn export-btn-tech" href="technical_report.pdf" download
+                 title="Technical deep-dive — for QA, engineering, DevOps">
+                <span class="export-icon">📊</span>
+                <span class="export-label">Technical PDF</span>
+              </a>
+            </div>
             <span class="status-badge {{STATUS_BADGE_CLASS}}">{{STATUS}}</span>
-            <div class="score-ring">
-              <div class="score-ring-label">Health Score</div>
-              <div><span class="score-ring-value" style="color:{{SCORE_COLOR}}">{{SCORE}}</span><span class="score-ring-max">/100</span></div>
+            <!--
+              Legacy single-score ring — kept visible but visually de-emphasised.
+              The semantic panel below is the authoritative source of truth for run health.
+              This composite score mixes Product / Framework / Telemetry signals and is
+              retained for backwards compatibility only.
+            -->
+            <div class="score-ring legacy-score" title="Legacy composite score — see Semantic Health panel below for authoritative scores">
+              <div class="score-ring-label" style="color:#94a3b8;font-size:9px;">Legacy Composite</div>
+              <div style="opacity:0.55;"><span class="score-ring-value" style="color:{{SCORE_COLOR}};font-size:22px;">{{SCORE}}</span><span class="score-ring-max" style="font-size:11px;">/100</span></div>
+              <div style="font-size:9px;color:#cbd5e1;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px;">deprecated</div>
             </div>
           </div>
         </div>
 
-        <!-- Stats Cards -->
-        <div class="stats-grid">
-          <div class="stat-card danger">
-            <div class="stat-label">Failed Tests</div>
-            <div class="stat-value">{{FAILED_COUNT}}</div>
-          </div>
-          <div class="stat-card warning">
-            <div class="stat-label">JS Errors</div>
-            <div class="stat-value">{{JS_ERROR_COUNT}}</div>
-          </div>
-          <div class="stat-card warning">
-            <div class="stat-label">Warnings</div>
-            <div class="stat-value">{{WARNING_COUNT}}</div>
-          </div>
-          <div class="stat-card info">
-            <div class="stat-label">Slow Pages</div>
-            <div class="stat-value">{{SLOW_PAGES_COUNT}}</div>
-          </div>
-          <div class="stat-card warning">
-            <div class="stat-label">Fallbacks Used</div>
-            <div class="stat-value">{{FALLBACK_COUNT}}</div>
-          </div>
-          <div class="stat-card success">
-            <div class="stat-label">Passed Tests</div>
-            <div class="stat-value">{{HEALTHY_COUNT}}</div>
-          </div>
+        <!-- Global Search + Severity Filters -->
+        <div class="global-search-wrap">
+          <span class="global-search-icon">&#x1F50D;</span>
+          <input type="text" class="global-search" id="globalSearch" placeholder="Search across failures, workflows, JS errors, clusters…" autocomplete="off">
+        </div>
+        <div class="sev-filter-row">
+          <span style="font-size:11px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.5px;margin-right:4px;">Filter:</span>
+          <button class="sev-chip chip-all active"      onclick="setSevFilter('all',      this)">All</button>
+          <button class="sev-chip chip-critical"        onclick="setSevFilter('critical', this)">Critical only</button>
+          <button class="sev-chip chip-cascade"         onclick="setSevFilter('cascade',  this)">Cascades</button>
+          <button class="sev-chip chip-new"             onclick="setSevFilter('new',      this)">New regressions</button>
+          <button class="sev-chip chip-gov"             onclick="setSevFilter('gov',      this)">Governance alerts</button>
         </div>
 
+        {{EXECUTIVE_PANEL}}
+
+        {{RELEASE_BLOCKERS}}
+
+        {{SEMANTIC_PANEL}}
+
+        {{CONFIDENCE_INDICATOR}}
+
+        {{DELTA_PANEL}}
+
+        <!--
+          Legacy raw-count stat cards.  Replaced by Semantic Health (layered scores,
+          error clusters, phase reliability).  Hidden behind a collapsed details to
+          remove from executive summary while preserving forensic access.
+        -->
+        <details class="legacy-section" style="border:1px dashed #e2e8f0;border-radius:8px;background:#fafbfc;margin-bottom:24px;">
+          <summary style="cursor:pointer;padding:12px 16px;font-size:13px;color:#64748b;font-weight:600;">
+            <span style="display:inline-block;padding:2px 8px;background:#fee2e2;color:#991b1b;border-radius:4px;font-size:10px;letter-spacing:0.4px;margin-right:8px;">DEPRECATED</span>
+            Legacy raw-count stats
+            <span style="font-weight:400;color:#94a3b8;margin-left:8px;">— see Semantic Health for clustered, domain-tagged metrics</span>
+          </summary>
+          <div style="padding:0 16px 16px;">
+            <div class="stats-grid">
+              <div class="stat-card danger">
+                <div class="stat-label">Failed Tests</div>
+                <div class="stat-value">{{FAILED_COUNT}}</div>
+              </div>
+              <div class="stat-card warning">
+                <div class="stat-label">JS Errors (raw)</div>
+                <div class="stat-value">{{JS_ERROR_COUNT}}</div>
+              </div>
+              <div class="stat-card info">
+                <div class="stat-label">Slow Pages (raw)</div>
+                <div class="stat-value">{{SLOW_PAGES_COUNT}}</div>
+              </div>
+              <div class="stat-card success">
+                <div class="stat-label">Passed Tests</div>
+                <div class="stat-value">{{HEALTHY_COUNT}}</div>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        {{ORCHESTRATION_PANEL}}
+
+        <div data-section id="sec-governance"></div>
+        {{GOVERNANCE_PANEL}}
+
+        <div data-section id="sec-workflows"></div>
+        {{WORKFLOW_MATRIX}}
+
+        {{ROOT_CAUSE_CLUSTERS}}
+
         <!-- Health Score Trend + Penalty Breakdown -->
+        <div data-section id="sec-trends"></div>
         <div class="chart-row">
           <div class="section">
             <div class="section-header" style="flex-direction:column;align-items:flex-start;gap:10px;">
@@ -862,118 +1699,118 @@ public final class DashboardBuilder {
           </div>
         </div>
 
-        <!-- Slow Pages -->
+        <div data-section id="sec-failures"></div>
+        <!-- Test Failure Details -->
         <div class="section">
-          <div class="section-header">
-            <div class="section-title">Slow Pages <span class="count">{{SLOW_PAGES_COUNT}}</span></div>
-            <div class="filter-controls">
-              <button class="filter-btn active" data-filter="all" data-table="slowPages">All</button>
-              <button class="filter-btn" data-filter="critical" data-table="slowPages">Critical</button>
-              <button class="filter-btn" data-filter="high" data-table="slowPages">High</button>
-              <button class="filter-btn" data-filter="medium" data-table="slowPages">Medium</button>
-            </div>
+          <div class="section-header collapsible-header" data-target="testFailuresContent">
+            <div class="section-title">Test Failure Details <span class="count">{{FAILED_COUNT}}</span></div>
           </div>
-          <table id="slowPagesTable">
-            <thead>
-              <tr><th data-sort="text">Page <span class="sort-icon">↕</span></th><th data-sort="duration">Load Time <span class="sort-icon">↕</span></th><th data-sort="severity">Severity <span class="sort-icon">↕</span></th></tr>
-            </thead>
-            <tbody>
-      {{SLOW_PAGES_ROWS}}
-            </tbody>
-          </table>
+          <div class="collapsible-content" id="testFailuresContent">
+            <table id="testFailuresTable">
+              <thead>
+                <tr><th data-sort="text">Test Name <span class="sort-icon">↕</span></th><th>Reason &amp; Stack Trace</th></tr>
+              </thead>
+              <tbody>
+                {{TEST_FAILURES_ROWS}}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        <!-- Two Column: JS Errors and Warnings -->
-        <div class="two-col">
-          <!-- JS Errors -->
-          <div class="section">
-            <div class="section-header collapsible-header" data-target="jsErrorsContent">
-              <div class="section-title">JS Errors <span class="count">{{JS_ERROR_COUNT}}</span></div>
-              <div class="filter-controls">
+        <!-- Slow Pages -->
+        <div class="section">
+          <!--
+            Legacy raw "Slow Pages" table. Superseded by the Semantic Health panel,
+            which routes UNKNOWN-timing entries to telemetry confidence and only the
+            real slow pages (>=5 s) to the layered Product Health score.
+            Kept collapsed for backwards-compatible drill-down.
+          -->
+          <details class="legacy-section" style="border:1px dashed #e2e8f0;border-radius:8px;background:#fafbfc;">
+            <summary style="cursor:pointer;padding:12px 16px;font-size:13px;color:#64748b;font-weight:600;">
+              <span style="display:inline-block;padding:2px 8px;background:#fee2e2;color:#991b1b;border-radius:4px;font-size:10px;letter-spacing:0.4px;margin-right:8px;">DEPRECATED</span>
+              Legacy: raw Slow Pages table <span class="count">{{SLOW_PAGES_COUNT}}</span>
+              <span style="font-weight:400;color:#94a3b8;margin-left:8px;">— now surfaced under Semantic Health / Telemetry Confidence</span>
+            </summary>
+            <div style="padding:0 16px 16px;">
+              <div class="filter-controls" style="margin-bottom:8px;">
+                <button class="filter-btn active" data-filter="all" data-table="slowPages">All</button>
+                <button class="filter-btn" data-filter="critical" data-table="slowPages">Critical</button>
+                <button class="filter-btn" data-filter="high" data-table="slowPages">High</button>
+                <button class="filter-btn" data-filter="medium" data-table="slowPages">Medium</button>
+              </div>
+              <table id="slowPagesTable">
+                <thead>
+                  <tr><th data-sort="text">Page <span class="sort-icon">↕</span></th><th data-sort="duration">Load Time <span class="sort-icon">↕</span></th><th data-sort="severity">Severity <span class="sort-icon">↕</span></th></tr>
+                </thead>
+                <tbody>
+        {{SLOW_PAGES_ROWS}}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </div>
+
+        <!--
+          Legacy raw JS Errors table.  The Semantic Health panel above replaces this
+          with clustered, domain-tagged error families (e.g. "zaraz x18 LOW
+          Observability" instead of 18 separate red entries).  Drill-down kept for
+          forensic access — collapsed by default.
+        -->
+        <div class="section">
+          <details class="legacy-section" style="border:1px dashed #e2e8f0;border-radius:8px;background:#fafbfc;">
+            <summary style="cursor:pointer;padding:12px 16px;font-size:13px;color:#64748b;font-weight:600;">
+              <span style="display:inline-block;padding:2px 8px;background:#fee2e2;color:#991b1b;border-radius:4px;font-size:10px;letter-spacing:0.4px;margin-right:8px;">DEPRECATED</span>
+              Legacy: raw JS Errors table <span class="count">{{JS_ERROR_COUNT}}</span>
+              <span style="font-weight:400;color:#94a3b8;margin-left:8px;">— now clustered under Semantic Health / Error Clusters</span>
+            </summary>
+            <div style="padding:0 16px 16px;">
+              <div class="filter-controls" style="margin-bottom:8px;">
                 <button class="filter-btn active" data-filter="all" data-table="jsErrors">All</button>
                 <button class="filter-btn" data-filter="critical" data-table="jsErrors">Critical</button>
                 <button class="filter-btn" data-filter="high" data-table="jsErrors">High</button>
               </div>
-            </div>
-            <div class="collapsible-content" id="jsErrorsContent" style="max-height:{{JS_ERRORS_MAX_HEIGHT}};overflow-y:auto;">
-              <table id="jsErrorsTable">
-                <thead>
-                  <tr><th style="width:150px;">Source</th><th style="width:100px;">Severity</th><th>Error Message</th></tr>
-                </thead>
-                <tbody>
-                  {{JS_ERRORS_ROWS}}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <!-- Fallback Details -->
-          <div class="section">
-            <div class="section-header collapsible-header" data-target="fallbackContent">
-              <div class="section-title">Fallback Details <span class="count">{{FALLBACK_COUNT}}</span></div>
-            </div>
-            <div class="collapsible-content" id="fallbackContent">
-              <table>
-                <thead>
-                  <tr><th>Navigation</th><th>Fallback URL</th></tr>
-                </thead>
-                <tbody>
-      {{FALLBACK_ROWS}}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <!-- Two Column: Test Failures and Warnings -->
-        <div class="two-col">
-          <!-- Test Failures Details -->
-          <div class="section">
-            <div class="section-header collapsible-header" data-target="testFailuresContent">
-              <div class="section-title">Test Failure Details <span class="count">{{FAILED_COUNT}}</span></div>
-            </div>
-            <div class="collapsible-content" id="testFailuresContent">
-              <table>
-                <thead>
-                  <tr><th>Test Name</th><th>Reason & Stack Trace</th></tr>
-                </thead>
-                <tbody>
-                  {{TEST_FAILURES_ROWS}}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <!-- Warnings Details -->
-          <div class="section">
-            <div class="section-header collapsible-header" data-target="warningsContent">
-              <div class="section-title">Warnings Details <span class="count">{{WARNING_COUNT}}</span></div>
-              <div class="filter-controls">
-                <button class="filter-btn active" data-filter="all" data-table="warnings">All</button>
-                <button class="filter-btn" data-filter="high" data-table="warnings">High ({{WARNING_HIGH_COUNT}})</button>
-                <button class="filter-btn" data-filter="low" data-table="warnings">Low ({{WARNING_LOW_COUNT}})</button>
-              </div>
-            </div>
-            <div class="collapsible-content" id="warningsContent">
-              <div id="warningsHigh" class="warnings-group">
-                <h4 style="color:#ea580c;margin:16px 0 8px;font-size:14px;">High Severity</h4>
-                <table>
-                  <thead><tr><th>Source</th><th>Warning</th></tr></thead>
-                  <tbody>{{WARNINGS_HIGH_ROWS}}</tbody>
-                </table>
-              </div>
-              <div id="warningsLow" class="warnings-group">
-                <h4 style="color:#64748b;margin:16px 0 8px;font-size:14px;">Low Severity</h4>
-                <table>
-                  <thead><tr><th>Source</th><th>Warning</th></tr></thead>
-                  <tbody>{{WARNINGS_LOW_ROWS}}</tbody>
+              <div style="max-height:{{JS_ERRORS_MAX_HEIGHT}};overflow-y:auto;">
+                <table id="jsErrorsTable">
+                  <thead>
+                    <tr><th style="width:150px;">Source</th><th style="width:100px;">Severity</th><th>Error Message</th></tr>
+                  </thead>
+                  <tbody>
+                    {{JS_ERRORS_ROWS}}
+                  </tbody>
                 </table>
               </div>
             </div>
-          </div>
+          </details>
         </div>
 
-        <!-- Recent Runs -->
+        <div data-section id="sec-appendix"></div>
+        <!-- Appendix: Fallbacks + Warnings (collapsed) -->
+        <details class="appendix">
+          <summary>Appendix — Fallbacks &amp; Warnings <span class="count" style="margin-left:4px;">{{FALLBACK_COUNT}} fallbacks · {{WARNING_COUNT}} warnings</span></summary>
+          <div class="appendix-body">
+            <div class="two-col">
+              <div>
+                <div style="font-size:13px;font-weight:600;color:#64748b;margin-bottom:10px;">Fallback Details</div>
+                <table>
+                  <thead><tr><th>Navigation</th><th>Fallback URL</th></tr></thead>
+                  <tbody>{{FALLBACK_ROWS}}</tbody>
+                </table>
+              </div>
+              <div>
+                <div style="font-size:13px;font-weight:600;color:#64748b;margin-bottom:10px;">Warnings <span class="count">{{WARNING_COUNT}}</span></div>
+                <div id="warningsHigh" class="warnings-group">
+                  <table>
+                    <thead><tr><th>Source</th><th>Warning</th></tr></thead>
+                    <tbody>{{WARNINGS_HIGH_ROWS}}</tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <div data-section id="sec-runs"></div>
+        <!-- Recent Test Runs -->
         <div class="section">
           <div class="section-header" style="flex-direction:column;align-items:flex-start;gap:12px;">
             <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
@@ -987,9 +1824,9 @@ public final class DashboardBuilder {
             <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;width:100%;">
               <div class="filter-group">
                 <span class="filter-group-label">Status</span>
-                <button class="fg-btn active" data-filter="all"    data-table="tests" id="fg-all">All</button>
-                <button class="fg-btn"        data-filter="pass"   data-table="tests" id="fg-pass">Passed</button>
-                <button class="fg-btn"        data-filter="fail"   data-table="tests" id="fg-fail">Failed</button>
+                <button class="fg-btn" data-filter="fail"   data-table="tests" id="fg-fail">Failed only</button>
+                <button class="fg-btn" data-filter="all"    data-table="tests" id="fg-all">All</button>
+                <button class="fg-btn" data-filter="pass"   data-table="tests" id="fg-pass">Passed</button>
               </div>
               <div class="filter-group">
                 <span class="filter-group-label">Type</span>
@@ -999,7 +1836,7 @@ public final class DashboardBuilder {
                 <button class="fg-btn"        data-filter="REGRESSION" data-table="tests" data-filterby="category" id="fg-regression">Regression</button>
                 <button class="fg-btn"        data-filter="FULL"       data-table="tests" data-filterby="category" id="fg-full">Full</button>
               </div>
-              <input type="text" class="search-input" id="testSearch" placeholder="Search tests..." style="margin-left:auto;">
+              <button class="show-passed-toggle" id="showPassedBtn" onclick="togglePassedRows()" style="margin-left:auto;">Show {{PASSED_STAT}} passed tests ▼</button>
             </div>
           </div>
           {{CATEGORY_SUMMARY}}
@@ -1425,17 +2262,19 @@ public final class DashboardBuilder {
       });
 
       function applyTestFilter() {
-        const searchQuery = (document.getElementById('testSearch')?.value || '').toLowerCase();
         document.querySelectorAll('#testsTable tbody tr').forEach(row => {
-          const rowStatus = (row.getAttribute('data-status') || '').toLowerCase();
+          const rowStatus   = (row.getAttribute('data-status') || '').toLowerCase();
           const rowCategory = (row.getAttribute('data-category') || '').toUpperCase();
-          const rowText = row.textContent.toLowerCase();
+          const isPass      = rowStatus === 'pass';
 
-          const statusOk = activeStatusFilter === 'all' || rowStatus === activeStatusFilter;
+          // Passed rows respect both the toggle and the status filter
+          const passOk     = passedVisible || activeStatusFilter === 'pass';
+          const statusOk   = activeStatusFilter === 'all'
+              ? (isPass ? passOk : true)
+              : rowStatus === activeStatusFilter;
           const categoryOk = activeCategoryFilter === 'all' || rowCategory === activeCategoryFilter.toUpperCase();
-          const searchOk = !searchQuery || rowText.includes(searchQuery);
 
-          row.style.display = (statusOk && categoryOk && searchOk) ? '' : 'none';
+          row.style.display = (statusOk && categoryOk) ? '' : 'none';
         });
       }
 
@@ -1450,9 +2289,126 @@ public final class DashboardBuilder {
         });
       }
 
-      // Search (respects active category + status filters)
-      document.getElementById('testSearch')?.addEventListener('input', () => {
+      // === STICKY NAV ===
+      function navTo(sectionId) {
+        const el = document.getElementById(sectionId);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+        const sectionMap = {
+          'sec-overview': 0, 'sec-workflows': 1, 'sec-failures': 2,
+          'sec-trends': 3, 'sec-governance': 4, 'sec-runs': 5, 'sec-appendix': 6
+        };
+        const tabs = document.querySelectorAll('.nav-tab');
+        const idx = sectionMap[sectionId];
+        if (tabs[idx]) tabs[idx].classList.add('active');
+      }
+
+      // Scroll-spy: update active nav tab on scroll
+      (function() {
+        const sections = ['sec-overview','sec-workflows','sec-failures','sec-trends','sec-governance','sec-runs','sec-appendix'];
+        const sectionMap = {};
+        sections.forEach((id, i) => { const el = document.getElementById(id); if (el) sectionMap[i] = el; });
+        const tabs = document.querySelectorAll('.nav-tab');
+        function updateActiveTab() {
+          let current = 0;
+          Object.entries(sectionMap).forEach(([i, el]) => {
+            if (el.getBoundingClientRect().top <= 80) current = parseInt(i);
+          });
+          tabs.forEach((t, i) => t.classList.toggle('active', i === current));
+        }
+        window.addEventListener('scroll', updateActiveTab, { passive: true });
+      })();
+
+      // === SEVERITY FILTER CHIPS ===
+      function setSevFilter(type, chip) {
+        document.querySelectorAll('.sev-chip').forEach(c => c.classList.remove('active'));
+        chip.classList.add('active');
+
+        // Reset all filtered elements first
+        document.querySelectorAll('#testFailuresTable tbody tr, #jsErrorsTable tbody tr, #slowPagesTable tbody tr').forEach(r => r.style.removeProperty('display'));
+
+        if (type === 'all') return;
+
+        if (type === 'critical') {
+          // Show only CRITICAL severity rows
+          document.querySelectorAll('#testFailuresTable tbody tr').forEach(r => {
+            const txt = r.textContent.toUpperCase();
+            r.style.display = (txt.includes('CRITICAL') || txt.includes('PRODUCT_BUG') || txt.includes('PRODUCT BUG')) ? '' : 'none';
+          });
+          document.querySelectorAll('#jsErrorsTable tbody tr').forEach(r => {
+            r.style.display = r.getAttribute('data-severity') === 'critical' ? '' : 'none';
+          });
+        } else if (type === 'cascade') {
+          // Show only cascade-related rows
+          document.querySelectorAll('#testFailuresTable tbody tr').forEach(r => {
+            r.style.display = r.textContent.toLowerCase().includes('cascade') ? '' : 'none';
+          });
+        } else if (type === 'new') {
+          // Show only rows that are "new" relative to last run — highlight delta section
+          document.getElementById('sec-overview')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else if (type === 'gov') {
+          // Scroll to governance section
+          document.getElementById('sec-governance')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+
+      // === PASSED TESTS COLLAPSE ===
+      let passedVisible = false;
+      function togglePassedRows() {
+        passedVisible = !passedVisible;
+        document.querySelectorAll('#testsTable tbody tr[data-status="pass"]').forEach(row => {
+          row.style.display = passedVisible ? '' : 'none';
+        });
+        const btn = document.getElementById('showPassedBtn');
+        if (btn) btn.textContent = passedVisible
+          ? 'Hide passed tests ▲'
+          : 'Show {{PASSED_STAT}} passed tests ▼';
+        // re-apply current filters so status filter still applies
         applyTestFilter();
+      }
+      // Collapse passed on initial load
+      document.addEventListener('DOMContentLoaded', () => {
+        document.querySelectorAll('#testsTable tbody tr[data-status="pass"]').forEach(row => {
+          row.style.display = 'none';
+        });
+        // Default status filter: fail only
+        document.getElementById('fg-fail')?.classList.add('active');
+        activeStatusFilter = 'fail';
+        applyTestFilter();
+      });
+
+      // === WORKFLOW MATRIX ROW EXPAND ===
+      function toggleWfDetail(id) {
+        const row = document.getElementById(id);
+        if (!row) return;
+        row.style.display = row.style.display === 'none' ? '' : 'none';
+      }
+
+      // === GLOBAL SEARCH ===
+      document.getElementById('globalSearch')?.addEventListener('input', function() {
+        const q = this.value.toLowerCase().trim();
+        if (!q) {
+          // restore normal visibility when cleared
+          document.querySelectorAll('[data-searchable]').forEach(el => el.style.display = '');
+          document.querySelectorAll('[data-searchable-row]').forEach(row => row.style.removeProperty('display'));
+          return;
+        }
+        // Search test failure rows
+        document.querySelectorAll('#testFailuresTable tbody tr').forEach(row => {
+          row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+        });
+        // Search test runs table
+        document.querySelectorAll('#testsTable tbody tr').forEach(row => {
+          row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+        });
+        // Search slow pages
+        document.querySelectorAll('#slowPagesTable tbody tr').forEach(row => {
+          row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+        });
+        // Search JS errors
+        document.querySelectorAll('#jsErrorsTable tbody tr').forEach(row => {
+          row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+        });
       });
 
       // Expandable JS error messages

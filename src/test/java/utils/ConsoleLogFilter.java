@@ -17,7 +17,9 @@ public final class ConsoleLogFilter {
     private static final List<String> IGNORE = List.of(
             "frame-ancestors",
             "swiper is not defined",
-            "deprecated");
+            "deprecated",
+            "zaraz is loaded twice",   // Cloudflare Zaraz double-load — third-party noise
+            "zaraz");                   // Any other Zaraz-emitted console line
 
     private static final List<String> AUTH = List.of(
             "fedcm", "accounts.google.com", "identity provider");
