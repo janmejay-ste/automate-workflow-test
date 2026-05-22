@@ -17,11 +17,15 @@ import utils.DashboardLauncher;
 import utils.FailureArtifactManager;
 import utils.NetworkMonitor;
 import utils.TrendExporter;
+import utils.VideoRecorder;
+import utils.VideoRecorder.VideoResult;
 import utils.health.HealthGate;
 import utils.health.HealthTracker;
 import utils.analytics.TestAnalyticsLogger;
 
 import java.lang.reflect.Method;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Set;
 import java.util.logging.Level;
@@ -118,6 +122,13 @@ public abstract class BaseTest {
 
         driver.get(BASE_URL);
         NetworkMonitor.reset(driver);
+
+        // Start video recording — no-op if -DrecordVideo=true is not set.
+        // Must be after driver.get() so the browser window is fully initialised.
+        if (result != null && result.getMethod() != null) {
+            String recId = this.getClass().getSimpleName() + "_" + result.getMethod().getMethodName();
+            VideoRecorder.start(recId, driver);   // stored in ThreadLocal; null-safe if disabled
+        }
     }
 
     // ---------- TEST TEARDOWN ----------
@@ -127,10 +138,34 @@ public abstract class BaseTest {
         String testClass  = result.getTestClass().getRealClass().getSimpleName();
         String testMethod = result.getName();
 
+        // ── Video recorder teardown — must run FIRST to capture end-of-test state ────────────
+        // stop() sets volatile stopping=true, then awaits any in-flight captureFrame() via
+        // awaitTermination(3s). After this block the driver is safe to use for artifact capture.
+        VideoRecorder recorder    = VideoRecorder.current();
+        VideoResult   videoResult = null;
+        String precomputedFailureFolder = null;
+
+        if (recorder != null) {
+            if (result.getStatus() == ITestResult.FAILURE) {
+                // Pre-compute the failure folder so video and other artifacts land in the same dir
+                precomputedFailureFolder = FailureArtifactManager.computeFolderName(testMethod);
+                videoResult = recorder.stop(
+                        Paths.get("reports/failures/" + precomputedFailureFolder), true);
+            } else if (result.getStatus() == ITestResult.SUCCESS) {
+                String folder = VideoRecorder.buildPassedFolder(testMethod);
+                videoResult = recorder.stop(Paths.get("reports/recordings/" + folder), true);
+            } else {
+                recorder.stop(null, false);   // discard frames for SKIP/other statuses
+            }
+        }
+        // ── End video recorder teardown ───────────────────────────────────────────────────────
+
         if (result.getStatus() == ITestResult.FAILURE) {
             String artifactFolder = null;
             if (isDriverHealthy()) {
-                artifactFolder = FailureArtifactManager.capture(driver, testMethod);
+                artifactFolder = (precomputedFailureFolder != null)
+                        ? FailureArtifactManager.capture(driver, testMethod, precomputedFailureFolder)
+                        : FailureArtifactManager.capture(driver, testMethod);
             }
             TestAnalyticsLogger.get().testFailed(testClass, testMethod, result.getThrowable(), artifactFolder);
 
@@ -141,7 +176,10 @@ public abstract class BaseTest {
             if (cat == null) cat = createDefaultCategory();
             ht.addTestRecord(cat.type().name(), cat.requiresLogin() ? "Auth" : "Guest",
                     cat.feature(), testClass, testMethod, "FAIL",
-                    result.getEndMillis() - result.getStartMillis());
+                    result.getEndMillis() - result.getStartMillis(),
+                    artifactFolder,
+                    videoResult != null ? videoResult.path()      : null,
+                    videoResult != null && videoResult.truncated());
 
         } else if (result.getStatus() == ITestResult.SUCCESS) {
             TestAnalyticsLogger.get().testPassed(testClass, testMethod);
@@ -151,7 +189,10 @@ public abstract class BaseTest {
             if (cat == null) cat = createDefaultCategory();
             ht.addTestRecord(cat.type().name(), cat.requiresLogin() ? "Auth" : "Guest",
                     cat.feature(), testClass, testMethod, "PASS",
-                    result.getEndMillis() - result.getStartMillis());
+                    result.getEndMillis() - result.getStartMillis(),
+                    null,
+                    videoResult != null ? videoResult.path()      : null,
+                    videoResult != null && videoResult.truncated());
 
         } else if (result.getStatus() == ITestResult.SKIP) {
             TestAnalyticsLogger.get().testSkipped(testClass, testMethod, "Skipped by TestNG");

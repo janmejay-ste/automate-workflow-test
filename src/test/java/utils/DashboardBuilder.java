@@ -222,7 +222,11 @@ public final class DashboardBuilder {
         .replace("{{WORKFLOW_MATRIX}}", buildWorkflowMatrixHtml(orchSnapshot, correlationSnapshot))
         .replace("{{ROOT_CAUSE_CLUSTERS}}", buildRootCauseClustersHtml(analytics, correlationSnapshot))
         .replace("{{ORCHESTRATION_PANEL}}", buildOrchestrationHtml(orchSnapshot))
-        .replace("{{GOVERNANCE_PANEL}}", GovernanceReportGenerator.buildDashboardHtml(govSnapshot));
+        .replace("{{GOVERNANCE_PANEL}}", GovernanceReportGenerator.buildDashboardHtml(govSnapshot))
+        .replace("{{RECORDINGS_SECTION}}", buildRecordingsSection(tests))
+        .replace("{{VIDEO_STYLES}}",  buildVideoStyles())
+        .replace("{{VIDEO_MODAL}}",   buildVideoModal())
+        .replace("{{VIDEO_SCRIPTS}}", buildVideoScripts());
   }
 
   private static String buildOrchestrationHtml(OrchestrationSnapshotDto orch) {
@@ -387,10 +391,251 @@ public final class DashboardBuilder {
   }
 
   private static String buildArtifactLinks(JSONObject test) {
-    String folder = getString(test, "artifacts", null);
-    if (folder == null)
-      return "";
-    return String.format("<a href='%s' class='artifact-link' target='_blank'>Logs</a>", folder);
+    String  folder    = getString(test, "artifacts", null);
+    String  videoPath = getString(test, "videoPath",  null);
+    boolean truncated = Boolean.TRUE.equals(test.get("videoTruncated"));
+    if (folder == null && videoPath == null) return "";
+
+    StringBuilder sb = new StringBuilder("<div class='artifact-links'>");
+    if (folder != null) {
+      String rel = "../../failures/" + folder;
+      sb.append(String.format(
+          "<a href='%s/screenshot.png' class='artifact-link screenshot-link' target='_blank'>📷 Screenshot</a>", rel));
+      sb.append(String.format(
+          "<a href='%s/console.log'    class='artifact-link' target='_blank'>📋 Console</a>", rel));
+      sb.append(String.format(
+          "<a href='%s/dom.html'       class='artifact-link' target='_blank'>🔍 DOM</a>", rel));
+    }
+    if (videoPath != null) {
+      String relVideo  = toRelativePathFromDashboard(videoPath).replace("\\", "/");
+      String title     = truncated
+          ? "Recording truncated — test exceeded max duration (-DrecordVideo.maxMinutes)"
+          : "Play test recording";
+      String label     = truncated ? "▶ Replay ⚠" : "▶ Replay";
+      String cssClass  = truncated ? "artifact-link video-link video-truncated"
+                                   : "artifact-link video-link";
+      sb.append(String.format(
+          "<button class='%s' onclick='openVideoModal(\"%s\")' title='%s'>%s</button>",
+          cssClass, relVideo, title, label));
+    }
+    sb.append("</div>");
+    return sb.toString();
+  }
+
+  /** Converts an absolute video path to a path relative from reports/trend/dashboard.html. */
+  private static String toRelativePathFromDashboard(String absPath) {
+    try {
+      java.nio.file.Path dashDir = java.nio.file.Paths.get("reports/trend").toAbsolutePath();
+      return dashDir.relativize(java.nio.file.Paths.get(absPath).toAbsolutePath()).toString();
+    } catch (Exception e) {
+      return absPath.replace("\\", "/");
+    }
+  }
+
+  // ── Recordings section ────────────────────────────────────────────────────
+
+  /** Lightweight holder for a discovered recording on disk. */
+  private static class RecordingEntry {
+    final String testName;   // extracted from folder name
+    final String status;     // "PASS" or "FAIL"
+    final String relPath;    // relative path from dashboard.html to recording.mp4
+    final String timestamp;  // "yyyyMMdd_HHmmss_SSS" portion of the folder name
+    RecordingEntry(String testName, String status, String relPath, String timestamp) {
+      this.testName  = testName;
+      this.status    = status;
+      this.relPath   = relPath;
+      this.timestamp = timestamp;
+    }
+  }
+
+  /**
+   * Scans {@code reports/failures/} and {@code reports/recordings/} on disk for
+   * {@code recording.mp4} files and returns one entry per found file, sorted
+   * newest-first.  This approach persists across runs: refreshing the dashboard
+   * always shows ALL previously captured recordings, not just the current run.
+   */
+  private static java.util.List<RecordingEntry> scanAllRecordings() {
+    java.util.List<RecordingEntry> entries = new java.util.ArrayList<>();
+    scanRecordingDir(java.nio.file.Paths.get("reports", "failures"),   "FAIL", entries);
+    scanRecordingDir(java.nio.file.Paths.get("reports", "recordings"), "PASS", entries);
+    // Sort newest-first by the timestamp embedded in the folder name
+    entries.sort((a, b) -> b.timestamp.compareTo(a.timestamp));
+    return entries;
+  }
+
+  private static void scanRecordingDir(java.nio.file.Path dir, String status,
+                                        java.util.List<RecordingEntry> entries) {
+    if (!java.nio.file.Files.exists(dir)) return;
+    try (java.util.stream.Stream<java.nio.file.Path> stream = java.nio.file.Files.list(dir)) {
+      stream.filter(java.nio.file.Files::isDirectory).forEach(folder -> {
+        java.nio.file.Path mp4 = folder.resolve("recording.mp4");
+        if (!java.nio.file.Files.exists(mp4)) return;
+
+        // Folder name format: {testMethodName}_{yyyyMMdd}_{HHmmss}_{SSS}
+        // Split on the first occurrence of _<8-digits> to isolate test name from timestamp
+        String folderName = folder.getFileName().toString();
+        java.util.regex.Matcher m =
+            java.util.regex.Pattern.compile("^(.+?)_(\\d{8}_\\d{6}_\\d{3})$")
+                .matcher(folderName);
+        String testName = m.matches() ? m.group(1) : folderName;
+        String ts       = m.matches() ? m.group(2) : "00000000_000000_000";
+
+        String relPath = toRelativePathFromDashboard(mp4.toAbsolutePath().toString())
+                            .replace("\\", "/");
+        entries.add(new RecordingEntry(testName, status, relPath, ts));
+      });
+    } catch (java.io.IOException e) {
+      LOG.warn("[DashboardBuilder] Could not scan recordings dir {}: {}", dir, e.getMessage());
+    }
+  }
+
+  /**
+   * Builds the full Recordings section HTML by scanning the filesystem.
+   * The {@code tests} parameter is unused but kept for method-signature consistency
+   * with the other build helpers — all data comes from disk so it persists across runs.
+   */
+  private static String buildRecordingsSection(JSONArray tests) {
+    java.util.List<RecordingEntry> recordings = scanAllRecordings();
+
+    StringBuilder sb = new StringBuilder();
+    sb.append("<div class='section'>");
+    sb.append("<div class='section-header'>");
+    sb.append(String.format(
+        "<div class='section-title'>▶ Recordings <span style='font-size:13px;font-weight:400;" +
+        "color:#64748b;margin-left:8px;'>%d video%s</span></div>",
+        recordings.size(), recordings.size() == 1 ? "" : "s"));
+    sb.append("<div style='font-size:12px;color:#64748b;'>Test execution replay videos — persisted across runs</div>");
+    sb.append("</div>");
+
+    if (recordings.isEmpty()) {
+      sb.append("""
+          <div class='recordings-empty'>
+            <div class='empty-icon'>🎬</div>
+            <div class='empty-title'>No recordings yet</div>
+            <div>Run tests with <code>-DrecordVideo=true</code> to capture replay videos.</div>
+            <div style='margin-top:8px;font-size:12px;'>
+              Example: <code>mvn test -Dtest=CreateConnectWorkflowTest -DrecordVideo=true</code>
+            </div>
+          </div>
+          """);
+    } else {
+      sb.append("<div class='recordings-grid'>");
+      for (RecordingEntry r : recordings) {
+        String badgeCss = "PASS".equals(r.status) ? "badge-healthy" : "badge-high";
+        // Format timestamp "20260522_143012_456" → "2026-05-22 14:30:12"
+        String displayTs = formatRecordingTimestamp(r.timestamp);
+
+        sb.append("<div class='recording-card'>");
+        sb.append("  <div class='recording-card-header'>");
+        sb.append(String.format("    <span class='badge %s'>%s</span>", badgeCss, r.status));
+        sb.append("  </div>");
+        sb.append(String.format("  <div class='recording-card-name' title='%s'>%s</div>",
+            r.testName, r.testName));
+        sb.append(String.format("  <div class='recording-card-meta'>%s</div>", displayTs));
+        sb.append(String.format(
+            "  <button class='recording-play-btn' onclick='openVideoModal(\"%s\")'" +
+            "  title='Play recording for %s'>▶ Play</button>",
+            r.relPath, r.testName));
+        sb.append("</div>");
+      }
+      sb.append("</div>"); // recordings-grid
+    }
+
+    sb.append("</div>"); // section
+    return sb.toString();
+  }
+
+  /** Formats "20260522_143012_456" → "2026-05-22 14:30:12" for display. */
+  private static String formatRecordingTimestamp(String ts) {
+    // ts = "yyyyMMdd_HHmmss_SSS"  e.g. "20260522_143012_456"
+    try {
+      if (ts.length() >= 15) {
+        return ts.substring(0, 4) + "-" + ts.substring(4, 6) + "-" + ts.substring(6, 8)
+             + " " + ts.substring(9, 11) + ":" + ts.substring(11, 13) + ":" + ts.substring(13, 15);
+      }
+    } catch (Exception ignored) {}
+    return ts;
+  }
+
+  // ── Video modal helpers (CSS / HTML / JS extracted for maintainability) ──
+
+  private static String buildVideoStyles() {
+    return """
+        .video-link { background:#eef2ff; color:#4f46e5; border:1px solid #c7d2fe;
+                      cursor:pointer; font-family:inherit; font-size:11px;
+                      padding:4px 8px; border-radius:4px; }
+        .video-link:hover { background:#e0e7ff; }
+        .video-truncated { border-color:#fbbf24; color:#92400e; background:#fffbeb; }
+        .video-truncated:hover { background:#fef3c7; }
+        .video-modal-overlay { display:none; position:fixed; inset:0;
+                               background:rgba(0,0,0,0.75); z-index:9999;
+                               align-items:center; justify-content:center; }
+        .video-modal-overlay.active { display:flex; }
+        .video-modal-box { background:#fff; border-radius:12px; padding:20px;
+                           max-width:900px; width:90vw; position:relative;
+                           box-shadow:0 25px 60px rgba(0,0,0,0.4); }
+        .video-modal-box video { width:100%; border-radius:8px; background:#000; }
+        .video-modal-close { position:absolute; top:12px; right:16px; background:none;
+                             border:none; font-size:22px; cursor:pointer; color:#64748b; }
+        /* ── Recording cards grid ── */
+        .recordings-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr));
+                           gap:16px; margin-top:16px; }
+        .recording-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px;
+                          padding:16px; display:flex; flex-direction:column; gap:10px;
+                          box-shadow:0 1px 4px rgba(0,0,0,0.06); transition:box-shadow 0.2s; }
+        .recording-card:hover { box-shadow:0 4px 16px rgba(0,0,0,0.12); }
+        .recording-card-header { display:flex; align-items:center; gap:8px; }
+        .recording-card-name { font-size:13px; font-weight:600; color:#1e293b;
+                               word-break:break-word; flex:1; }
+        .recording-card-meta { font-size:11px; color:#64748b; }
+        .recording-play-btn { width:100%; padding:10px; border:none; border-radius:8px;
+                              background:#6366f1; color:#fff; font-size:13px; font-weight:600;
+                              cursor:pointer; transition:background 0.15s; }
+        .recording-play-btn:hover { background:#4f46e5; }
+        .recording-play-btn.truncated { background:#f59e0b; }
+        .recording-play-btn.truncated:hover { background:#d97706; }
+        .recordings-empty { text-align:center; padding:60px 20px; color:#94a3b8; }
+        .recordings-empty .empty-icon { font-size:48px; margin-bottom:12px; }
+        .recordings-empty .empty-title { font-size:16px; font-weight:600; color:#64748b; margin-bottom:8px; }
+        .recordings-empty code { background:#f1f5f9; padding:2px 6px; border-radius:4px;
+                                 font-size:12px; color:#4f46e5; }
+        """;
+  }
+
+  private static String buildVideoModal() {
+    return """
+        <div id="videoModalOverlay" class="video-modal-overlay" onclick="handleOverlayClick(event)">
+          <div class="video-modal-box">
+            <button class="video-modal-close" onclick="closeVideoModal()">&times;</button>
+            <video id="videoPlayer" controls preload="metadata">
+              <source id="videoSource" src="" type="video/mp4">
+            </video>
+          </div>
+        </div>
+        """;
+  }
+
+  private static String buildVideoScripts() {
+    return """
+        <script>
+        function openVideoModal(src) {
+            document.getElementById('videoSource').src = src;
+            document.getElementById('videoPlayer').load();
+            document.getElementById('videoModalOverlay').classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+        function closeVideoModal() {
+            document.getElementById('videoPlayer').pause();
+            document.getElementById('videoSource').src = '';
+            document.getElementById('videoModalOverlay').classList.remove('active');
+            document.body.style.overflow = '';
+        }
+        function handleOverlayClick(e) {
+            if (e.target.id === 'videoModalOverlay') closeVideoModal();
+        }
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeVideoModal(); });
+        </script>
+        """;
   }
 
   private static String buildSlowPageRows(JSONArray slowPages) {
@@ -1519,6 +1764,7 @@ public final class DashboardBuilder {
       @media (max-width: 480px) {
         .stats-grid { grid-template-columns: 1fr; }
       }
+      {{VIDEO_STYLES}}
       </style>
       </head>
       <body>
@@ -1533,6 +1779,7 @@ public final class DashboardBuilder {
             <button class="nav-tab" onclick="navTo('sec-trends')">Trends</button>
             <button class="nav-tab" onclick="navTo('sec-governance')">Governance</button>
             <button class="nav-tab" onclick="navTo('sec-runs')">Test Runs</button>
+            <button class="nav-tab" onclick="navTo('sec-recordings')">▶ Recordings</button>
             <button class="nav-tab" onclick="navTo('sec-appendix')">Appendix</button>
           </div>
         </div>
@@ -1784,6 +2031,10 @@ public final class DashboardBuilder {
         </div>
 
         <div data-section id="sec-appendix"></div>
+        <!-- Recordings section -->
+        <div data-section id="sec-recordings"></div>
+        {{RECORDINGS_SECTION}}
+
         <!-- Appendix: Fallbacks + Warnings (collapsed) -->
         <details class="appendix">
           <summary>Appendix — Fallbacks &amp; Warnings <span class="count" style="margin-left:4px;">{{FALLBACK_COUNT}} fallbacks · {{WARNING_COUNT}} warnings</span></summary>
@@ -2296,7 +2547,7 @@ public final class DashboardBuilder {
         document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
         const sectionMap = {
           'sec-overview': 0, 'sec-workflows': 1, 'sec-failures': 2,
-          'sec-trends': 3, 'sec-governance': 4, 'sec-runs': 5, 'sec-appendix': 6
+          'sec-trends': 3, 'sec-governance': 4, 'sec-runs': 5, 'sec-recordings': 6, 'sec-appendix': 7
         };
         const tabs = document.querySelectorAll('.nav-tab');
         const idx = sectionMap[sectionId];
@@ -2305,7 +2556,7 @@ public final class DashboardBuilder {
 
       // Scroll-spy: update active nav tab on scroll
       (function() {
-        const sections = ['sec-overview','sec-workflows','sec-failures','sec-trends','sec-governance','sec-runs','sec-appendix'];
+        const sections = ['sec-overview','sec-workflows','sec-failures','sec-trends','sec-governance','sec-runs','sec-recordings','sec-appendix'];
         const sectionMap = {};
         sections.forEach((id, i) => { const el = document.getElementById(id); if (el) sectionMap[i] = el; });
         const tabs = document.querySelectorAll('.nav-tab');
@@ -2465,6 +2716,8 @@ public final class DashboardBuilder {
         });
       });
       </script>
+      {{VIDEO_MODAL}}
+      {{VIDEO_SCRIPTS}}
       </body>
       </html>
       """;

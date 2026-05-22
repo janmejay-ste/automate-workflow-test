@@ -263,16 +263,26 @@ public class HealthTracker {
 
     @SuppressWarnings("unchecked")
     public synchronized void addTestRecord(String category, String login, String feature, String clazz, String method,
-            String status, long duration) {
+            String status, long duration,
+            String artifactFolder, String videoPath, boolean videoTruncated) {
         JSONObject rec = new JSONObject();
         rec.put("category", category);
-        rec.put("login", login);
-        rec.put("feature", feature);
-        rec.put("class", clazz);
-        rec.put("method", method);
-        rec.put("status", status);
+        rec.put("login",    login);
+        rec.put("feature",  feature);
+        rec.put("class",    clazz);
+        rec.put("method",   method);
+        rec.put("status",   status);
         rec.put("duration", duration);
+        if (artifactFolder != null) rec.put("artifacts",     artifactFolder); // activates buildArtifactLinks
+        if (videoPath      != null) rec.put("videoPath",     videoPath);
+        if (videoTruncated)         rec.put("videoTruncated", true);
         testRecords.add(rec);
+    }
+
+    /** Backward-compatible bridge — all existing call-sites remain unchanged. */
+    public synchronized void addTestRecord(String category, String login, String feature, String clazz, String method,
+            String status, long duration) {
+        addTestRecord(category, login, feature, clazz, method, status, duration, null, null, false);
     }
 
     public String getSuiteName() {
