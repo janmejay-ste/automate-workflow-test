@@ -16,6 +16,17 @@ public class AnalyticsCollector {
         root.put("schemaVersion", 2);
         root.put("timestamp", System.currentTimeMillis());
 
+        // Suite duration is propagated from BaseTest.afterSuite() via a system
+        // property because the analytics layer doesn't see the BeforeSuite hook.
+        // Reading this avoids the previous bug where the dashboard showed "0ms"
+        // for every multi-minute run because no one ever wrote totalDurationMs.
+        try {
+            long durMs = Long.parseLong(System.getProperty("suite.durationMs", "0"));
+            root.put("totalDurationMs", durMs);
+        } catch (NumberFormatException e) {
+            root.put("totalDurationMs", 0L);
+        }
+
         HealthTracker ht = HealthTracker.get();
 
         // 0. Metadata & Global Interpreted Results
@@ -29,12 +40,23 @@ public class AnalyticsCollector {
         root.put("totalPenalty", ht.getRawPenalty());
         root.put("status", ht.getStatus());
 
-        // Pass Rates for RiskInterpreter
-        long totalTests = ht.getTestFailures().size() + ht.getHealthyCount(); // Approximate
-        if (totalTests == 0)
-            totalTests = 1; // avoid div by zero
+        // ── Test counts: single source of truth ─────────────────────────────
+        // Both the count fields and the pass rate derive from the SAME inputs.
+        // Previously regressionPassRate used getTestFailures().size() while
+        // failedCount was never put into JSON at all (dashboard defaulted to 0),
+        // producing "0 regression test failures require investigation" headlines
+        // alongside a sub-1.0 pass rate.  That was the exact dual-truth class
+        // we worked to eliminate.  All four numbers now derive from one place:
+        int failedCount = ht.getTestFailures().size();
+        int passedCount = (int) ht.getHealthyCount();
+        int totalCount  = failedCount + passedCount;
+        int safeTotal   = totalCount == 0 ? 1 : totalCount;   // avoid div-by-zero only
 
-        double passRate = (double) ht.getHealthyCount() / totalTests;
+        double passRate = (double) passedCount / safeTotal;
+        root.put("failedCount",        failedCount);
+        root.put("passedCount",        passedCount);
+        root.put("healthyCount",       passedCount);            // legacy alias
+        root.put("totalTestCount",     totalCount);
         root.put("regressionPassRate", passRate);
 
         // NOTE: Smoke pass rate would ideally be filtered by group,
