@@ -344,9 +344,13 @@ public final class VideoRecorder {
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
-    /** Feature flag — the ONLY auto-disable condition. No CI/headless detection. */
+    /**
+     * Feature flag — recording is ON by default for every test run.
+     * To DISABLE explicitly, pass {@code -DrecordVideo=false}.
+     * No CI/headless detection: this is the only gate.
+     */
     private static boolean shouldDisable() {
-        return !Boolean.parseBoolean(System.getProperty("recordVideo", "false"));
+        return !Boolean.parseBoolean(System.getProperty("recordVideo", "true"));
     }
 
     // ── result type ───────────────────────────────────────────────────────────

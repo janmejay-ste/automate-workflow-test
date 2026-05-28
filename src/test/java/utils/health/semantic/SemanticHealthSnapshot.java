@@ -138,6 +138,35 @@ public final class SemanticHealthSnapshot {
     }
 
     /**
+     * Loads cluster titles from the PREVIOUS run's snapshot file so
+     * {@link #toJson()} can mark clusters that are new this run.
+     *
+     * <p>This is called at serialisation time, before the current snapshot
+     * overwrites {@code health_snapshot.json}, so the file still holds the
+     * previous run's data — the comparison is always against the last run.
+     */
+    private static java.util.Set<String> readPreviousClusterTitles() {
+        try {
+            java.nio.file.Path p = java.nio.file.Paths.get("reports/trend/health_snapshot.json");
+            if (!java.nio.file.Files.exists(p)) return java.util.Set.of();
+            JSONObject root = (JSONObject) new org.json.simple.parser.JSONParser()
+                    .parse(java.nio.file.Files.readString(p));
+            JSONObject sem  = (JSONObject) root.get("semantic");
+            if (sem == null) return java.util.Set.of();
+            JSONArray prev  = (JSONArray) sem.get("clusters");
+            if (prev == null) return java.util.Set.of();
+            java.util.Set<String> titles = new java.util.HashSet<>();
+            for (Object o : prev) {
+                String t = (String) ((JSONObject) o).get("title");
+                if (t != null) titles.add(t);
+            }
+            return titles;
+        } catch (Exception e) {
+            return java.util.Set.of();   // first run or parse error — treat all as known
+        }
+    }
+
+    /**
      * Emit a JSONObject representation suitable for embedding in the dashboard
      * snapshot JSON or for external consumption.
      */
@@ -157,6 +186,10 @@ public final class SemanticHealthSnapshot {
         layered.put("businessStatus",      scores.businessStatus());
         out.put("layeredScores", layered);
 
+        // Read previous run's cluster titles BEFORE the new snapshot is written,
+        // so this comparison is always against last run's data (not the current run).
+        java.util.Set<String> prevTitles = readPreviousClusterTitles();
+
         JSONArray clusterArr = new JSONArray();
         for (ErrorCluster c : clusters) {
             JSONObject co = new JSONObject();
@@ -167,6 +200,9 @@ public final class SemanticHealthSnapshot {
             co.put("sampleMessage", c.sampleMessage);
             co.put("sampleContext", c.sampleContext);
             co.put("reason",        c.reason);
+            // isNew=true when this cluster's title was not seen in the previous run.
+            // First run: prevTitles is empty → all clusters are marked new.
+            co.put("isNew",         !prevTitles.contains(c.title));
             clusterArr.add(co);
         }
         out.put("clusters", clusterArr);

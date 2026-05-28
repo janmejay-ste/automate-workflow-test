@@ -40,15 +40,19 @@ public final class DashboardBuilder {
       JSONObject analytics = readAnalytics();
       List<TrendDataWriter.RunData> history = TrendDataWriter.readFullHistory();
 
-      // Release status interpretation (V4 Hardened)
+      // Release status interpretation (V5 — semantic-aware)
       int score = getInt(analytics, "overallScore", 100);
       double smokePass = getDouble(analytics, "smokePassRate", 1.0);
       double regressionPass = getDouble(analytics, "regressionPassRate", 1.0);
       int criticalBugs = getInt(analytics, "criticalProductBugs", 0);
       int locatorSamples = getInt(analytics, "totalLocatorSamples", 0);
 
+      // Read Product Health from semantic snapshot (written by TrendExporter before this runs).
+      // Default 100 = healthy: missing data must never block a release.
+      int productHealth = readProductHealthFromSnapshot();
+
       HealthPolicy.ReleaseStatus releaseStatus = RiskInterpreter.interpret(
-          score, smokePass, criticalBugs, regressionPass, locatorSamples);
+          score, smokePass, criticalBugs, regressionPass, locatorSamples, productHealth);
 
       // Build orchestration snapshot when upstream data is available
       OrchestrationSnapshotDto orchSnapshot = null;
@@ -114,10 +118,11 @@ public final class DashboardBuilder {
     long durationMs = getLong(analytics, "totalDurationMs", 0);
     long timestamp = getLong(metadata, "timestamp", System.currentTimeMillis());
 
-    // Risk Panel
+    // Risk Panel — uses dimension-specific description when Product Health data is available
+    int productHealthForDesc = readProductHealthFromSnapshot();
     String readyHtml = String.format(
         "<div class='risk-card %s'><div class='risk-label'>Release Status</div><div class='risk-status'>%s</div><div class='risk-desc'>%s (Score: %d)</div></div>",
-        status.cssClass, status.label, getReleaseDescription(status), getInt(analytics, "overallScore", 0));
+        status.cssClass, status.label, getReleaseDescription(status, productHealthForDesc), getInt(analytics, "overallScore", 0));
 
     // Failure Analysis
     JSONObject failTypes = (JSONObject) analytics.get("failureTypeCounts");
@@ -214,6 +219,7 @@ public final class DashboardBuilder {
         .replace("{{AVG_SCORE}}", String.format("%.1f", trend.avgScore))
         .replace("{{JS_ERRORS_MAX_HEIGHT}}", jsProdErrors != null && jsProdErrors.size() > 10 ? "360px" : "none")
         .replace("{{CATEGORY_SUMMARY}}", "") // Optional summary space
+        .replace("{{TRIAGE_BOX}}", buildTriageSummaryHtml(analytics, status, readProductHealthFromSnapshot(), tests))
         .replace("{{EXECUTIVE_PANEL}}", buildExecutivePanelHtml(analytics, status, trendSnapshot, correlationSnapshot, orchSnapshot, govSnapshot))
         .replace("{{RELEASE_BLOCKERS}}", buildReleaseBlockersHtml(analytics, status, correlationSnapshot, orchSnapshot, trendSnapshot))
         .replace("{{SEMANTIC_PANEL}}", buildSemanticPanelHtml())
@@ -881,11 +887,21 @@ public final class DashboardBuilder {
 
   private static String deriveRecommendedAction(HealthPolicy.ReleaseStatus status,
       utils.correlation.dto.CorrelationSnapshotDto corr, OrchestrationSnapshotDto orch) {
+    return deriveRecommendedAction(status, corr, orch, readProductHealthFromSnapshot());
+  }
+
+  private static String deriveRecommendedAction(HealthPolicy.ReleaseStatus status,
+      utils.correlation.dto.CorrelationSnapshotDto corr, OrchestrationSnapshotDto orch,
+      int productHealth) {
     if (corr != null && corr.cascadeDetected && corr.cascadeFailure != null)
       return "Fix " + corr.cascadeFailure.rootWorkflow + " first, then rerun";
     return switch (status) {
-      case BLOCKED -> "Resolve blocking failures before release";
-      case AT_RISK -> "Review failures and rerun affected suites";
+      case BLOCKED -> productHealth < 20
+          ? "Resolve product-level JS errors (Frontend Engineering), then re-run"
+          : "Resolve blocking failures before release";
+      case AT_RISK -> productHealth < 50
+          ? "Investigate JS error clusters under Semantic Health; re-run after fix"
+          : "Review failures and rerun affected suites";
       case WARNING -> "Review warnings, proceed with caution";
       default      -> "Ready to release";
     };
@@ -1332,19 +1348,138 @@ public final class DashboardBuilder {
     return def;
   }
 
-  private static String getReleaseDescription(HealthPolicy.ReleaseStatus status) {
-    switch (status) {
-      case READY:
-        return "All criteria met. Safe for release.";
-      case WARNING:
-        return "Minor issues detected. Review recommended.";
-      case AT_RISK:
-        return "Significant regression or health drop. Proceed with caution.";
-      case BLOCKED:
-        return "Critical failures or policy violation. Release blocked.";
-      default:
-        return "Unknown status";
+  // ── Semantic snapshot reader ──────────────────────────────────────────────
+
+  /**
+   * Reads {@code semantic.layeredScores.productHealth} from the current
+   * {@code health_snapshot.json}.  That file is written by
+   * {@link TrendExporter#updateTrend} <em>before</em> {@link #write()} is called,
+   * so the data is always available at dashboard-build time.
+   *
+   * @return product health score (0–100), or {@code 100} (healthy default) if the
+   *         file is missing or the semantic block is absent — missing data must
+   *         never block a release.
+   */
+  private static int readProductHealthFromSnapshot() {
+    try {
+      Path p = Paths.get("reports/trend/health_snapshot.json");
+      if (!Files.exists(p)) return 100;
+      JSONObject root   = (JSONObject) new JSONParser().parse(Files.readString(p));
+      JSONObject sem    = (JSONObject) root.get("semantic");
+      if (sem == null) return 100;
+      JSONObject scores = (JSONObject) sem.get("layeredScores");
+      if (scores == null) return 100;
+      Object v = scores.get("productHealth");
+      return v instanceof Number n ? n.intValue() : 100;
+    } catch (Exception e) {
+      return 100;
     }
+  }
+
+  // ── 30-Second Triage Box ──────────────────────────────────────────────────
+
+  /**
+   * Prominent card rendered at the very top of the dashboard (before the
+   * executive panel) when the release status is not READY.
+   *
+   * <p>Shows four cells: WHAT BROKE / BLAST RADIUS / OWNER / ACTION — the
+   * four things an engineer needs in the first 30 seconds of investigating a
+   * red build.  Returns "" when status is READY (nothing to triage).
+   */
+  private static String buildTriageSummaryHtml(JSONObject analytics,
+      HealthPolicy.ReleaseStatus status, int productHealth, JSONArray tests) {
+    if (status == HealthPolicy.ReleaseStatus.READY) return "";
+
+    String headerColor = switch (status) {
+      case BLOCKED -> "#dc2626"; case AT_RISK -> "#ea580c"; default -> "#ca8a04";
+    };
+    String bg = switch (status) {
+      case BLOCKED -> "#fef2f2"; case AT_RISK -> "#fff7ed"; default -> "#fefce8";
+    };
+    String border = switch (status) {
+      case BLOCKED -> "#fca5a5"; case AT_RISK -> "#fed7aa"; default -> "#fde68a";
+    };
+
+    // WHAT: first failing test method name
+    String topFail = "—";
+    if (tests != null) {
+      for (Object o : tests) {
+        if (!(o instanceof JSONObject t)) continue;
+        if ("FAIL".equals(getString(t, "status", ""))) {
+          topFail = getString(t, "method", getString(t, "class", "Unknown"));
+          break;
+        }
+      }
+    }
+
+    // BLAST RADIUS
+    int failedCount = getInt(analytics, "failedCount", 0);
+    int totalCount  = getInt(analytics, "totalTestCount", 0);
+    String blastRadius = failedCount + " of " + (totalCount > 0 ? totalCount : "?") + " tests";
+
+    // DOMAIN + OWNER (driven by Product Health)
+    boolean isProductFailure = productHealth < 50;
+    String domain = isProductFailure ? "Product (Frontend)" : "Framework (QA)";
+    String owner  = isProductFailure ? "Frontend Engineering" : "QA Automation";
+
+    // ACTION
+    String action;
+    if (status == HealthPolicy.ReleaseStatus.BLOCKED) {
+      action = isProductFailure
+          ? "Fix app-level JS errors, then re-run"
+          : "Fix failing tests, then re-run smoke suite";
+    } else {
+      action = isProductFailure
+          ? "Review JS error clusters → Semantic Health tab"
+          : "Investigate failures → Recent Test Runs tab";
+    }
+
+    return "<div style='background:" + bg + ";border:2px solid " + border
+        + ";border-radius:12px;padding:20px 24px;margin-bottom:20px;'>"
+        + "<div style='font-size:11px;font-weight:700;color:" + headerColor
+        + ";text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;'>"
+        + "🔍 30-Second Triage — What You Need To Know Right Now</div>"
+        + "<div style='display:grid;grid-template-columns:repeat(4,1fr);gap:20px;'>"
+        + triageCell("WHAT BROKE",   escHtml(topFail))
+        + triageCell("BLAST RADIUS", escHtml(blastRadius))
+        + triageCell("OWNER",
+              escHtml(domain) + "<br><span style='font-weight:400;color:#475569;font-size:12px;'>"
+              + escHtml(owner) + "</span>")
+        + triageCell("ACTION",       escHtml(action))
+        + "</div></div>";
+  }
+
+  private static String triageCell(String label, String value) {
+    return "<div>"
+        + "<div style='font-size:10px;font-weight:700;color:#94a3b8;"
+        + "text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px;'>"
+        + escHtml(label) + "</div>"
+        + "<div style='font-size:14px;font-weight:600;color:#1e293b;line-height:1.4;'>"
+        + value + "</div>"
+        + "</div>";
+  }
+
+  /** Backward-compat overload — no product-health context available. */
+  private static String getReleaseDescription(HealthPolicy.ReleaseStatus status) {
+    return getReleaseDescription(status, 100);
+  }
+
+  /**
+   * Dimension-specific release description.  When {@code productHealth} is
+   * available from the semantic snapshot, AT_RISK and BLOCKED descriptions call
+   * out the responsible team rather than giving a generic message.
+   */
+  private static String getReleaseDescription(HealthPolicy.ReleaseStatus status, int productHealth) {
+    return switch (status) {
+      case READY   -> "All criteria met. Safe for release.";
+      case WARNING -> "Minor issues detected. Review recommended.";
+      case BLOCKED -> productHealth < 20
+          ? "Product instability critical (Frontend Engineering). Release blocked."
+          : "Critical failures or policy violation. Release blocked.";
+      case AT_RISK -> productHealth < 50
+          ? "Product instability detected (Frontend Engineering). Resolve JS error clusters before release."
+          : "Test suite regressions present (QA Automation). Re-run after investigation.";
+    };
   }
 
   private static final String TEMPLATE = """
@@ -1844,6 +1979,8 @@ public final class DashboardBuilder {
           <button class="sev-chip chip-new"             onclick="setSevFilter('new',      this)">New regressions</button>
           <button class="sev-chip chip-gov"             onclick="setSevFilter('gov',      this)">Governance alerts</button>
         </div>
+
+        {{TRIAGE_BOX}}
 
         {{EXECUTIVE_PANEL}}
 

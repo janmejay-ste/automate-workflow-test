@@ -82,9 +82,27 @@ public final class LayeredHealthScores {
                                            testFailuresProduct, testFailuresFramework);
 
         int scorable = businessSuccess + businessPartial + businessFailed;
-        int bizScore = (scorable == 0)
-                ? NO_DATA
-                : (int) Math.round((businessSuccess * 100.0 + businessPartial * 50.0) / scorable);
+        int bizScore;
+        if (scorable == 0) {
+            bizScore = NO_DATA;
+        } else {
+            int raw = (int) Math.round((businessSuccess * 100.0 + businessPartial * 50.0) / scorable);
+            // Cross-contamination: PRODUCT/INFRA clusters firing during test execution signal
+            // the app was erroring even as business transactions "completed". A 100% pass rate
+            // on an app with multiple CRITICAL JS errors is not the same as a clean 100%.
+            // Cap penalty at 30 so a single bad cluster can never zero-out a real 100% pass rate.
+            int critClusters = 0, highClusters = 0;
+            if (clusters != null) {
+                for (ErrorCluster c : clusters) {
+                    if (c.domain == FailureDomain.PRODUCT || c.domain == FailureDomain.INFRASTRUCTURE) {
+                        if (c.severity == ClusterSeverity.CRITICAL)      critClusters++;
+                        else if (c.severity == ClusterSeverity.HIGH)     highClusters++;
+                    }
+                }
+            }
+            int contamination = Math.min(30, critClusters * 5 + highClusters * 3);
+            bizScore = Math.max(0, raw - contamination);
+        }
 
         return new LayeredHealthScores(base.productHealth, base.frameworkHealth,
                                        base.telemetryConfidence, bizScore);

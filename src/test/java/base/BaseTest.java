@@ -18,7 +18,6 @@ import utils.FailureArtifactManager;
 import utils.NetworkMonitor;
 import utils.TrendExporter;
 import utils.VideoRecorder;
-import utils.VideoRecorder.VideoResult;
 import utils.health.HealthGate;
 import utils.health.HealthTracker;
 import utils.analytics.TestAnalyticsLogger;
@@ -123,12 +122,17 @@ public abstract class BaseTest {
         driver.get(BASE_URL);
         NetworkMonitor.reset(driver);
 
-        // Start video recording — no-op if -DrecordVideo=true is not set.
-        // Must be after driver.get() so the browser window is fully initialised.
-        if (result != null && result.getMethod() != null) {
-            String recId = this.getClass().getSimpleName() + "_" + result.getMethod().getMethodName();
-            VideoRecorder.start(recId, driver);   // stored in ThreadLocal; null-safe if disabled
-        }
+        // ── Video recording (ON by default; disable with -DrecordVideo=false) ──
+        // Starts the per-frame screenshot capture thread (≤4 FPS PNG to temp dir).
+        // Note: we deliberately do NOT gate on result.getMethod().isTest() — that
+        // check returns false inside @BeforeMethod for some TestNG flows (which is
+        // also why the "Authenticated Flow Detected" log never appears).  Driver is
+        // already initialized here; that's all we need to start recording.
+        String recTestName = (result != null && result.getMethod() != null)
+                ? result.getMethod().getMethodName()
+                : Thread.currentThread().getName();
+        String recId = this.getClass().getSimpleName() + "_" + recTestName;
+        VideoRecorder.start(recId, driver);
     }
 
     // ---------- TEST TEARDOWN ----------
@@ -138,31 +142,40 @@ public abstract class BaseTest {
         String testClass  = result.getTestClass().getRealClass().getSimpleName();
         String testMethod = result.getName();
 
-        // ── Video recorder teardown — must run FIRST to capture end-of-test state ────────────
-        // stop() sets volatile stopping=true, then awaits any in-flight captureFrame() via
-        // awaitTermination(3s). After this block the driver is safe to use for artifact capture.
-        VideoRecorder recorder    = VideoRecorder.current();
-        VideoResult   videoResult = null;
+        // ── Stop video recorder FIRST (before any other driver interaction) ──────
+        // recorder.stop() signals the background screenshot thread to halt, then
+        // awaits in-flight captures (up to 3s).  After this returns, the driver is
+        // safe to reuse for FailureArtifactManager.capture() below.
+        //
+        // For FAIL: video is co-located with screenshot/dom/console in
+        //           reports/failures/{testName}_{ts}/recording.mp4
+        // For PASS + -DrecordPassedVideo=true: reports/recordings/{testName}_{ts}/recording.mp4
+        // Otherwise: frames are discarded (fast path, no FFmpeg).
+        VideoRecorder recorder = VideoRecorder.current();
         String precomputedFailureFolder = null;
+        // recordPassedVideo defaults to true so every test run (PASS or FAIL) gets a video.
+        // Set -DrecordPassedVideo=false to skip MP4 assembly for PASS tests (saves CPU).
+        boolean recordPassed = Boolean.parseBoolean(System.getProperty("recordPassedVideo", "true"));
 
         if (recorder != null) {
             if (result.getStatus() == ITestResult.FAILURE) {
-                // Pre-compute the failure folder so video and other artifacts land in the same dir
                 precomputedFailureFolder = FailureArtifactManager.computeFolderName(testMethod);
-                videoResult = recorder.stop(
-                        Paths.get("reports/failures/" + precomputedFailureFolder), true);
-            } else if (result.getStatus() == ITestResult.SUCCESS) {
+                Path dir = Paths.get("reports/failures/" + precomputedFailureFolder);
+                recorder.stop(dir, true);
+            } else if (result.getStatus() == ITestResult.SUCCESS && recordPassed) {
                 String folder = VideoRecorder.buildPassedFolder(testMethod);
-                videoResult = recorder.stop(Paths.get("reports/recordings/" + folder), true);
+                Path dir = Paths.get("reports/recordings/" + folder);
+                recorder.stop(dir, true);
             } else {
-                recorder.stop(null, false);   // discard frames for SKIP/other statuses
+                recorder.stop(null, false);   // discard frames (no FFmpeg)
             }
         }
-        // ── End video recorder teardown ───────────────────────────────────────────────────────
 
         if (result.getStatus() == ITestResult.FAILURE) {
             String artifactFolder = null;
             if (isDriverHealthy()) {
+                // Reuse the same folder name as the video so screenshot+DOM+console+MP4
+                // all live in one directory per failed test.
                 artifactFolder = (precomputedFailureFolder != null)
                         ? FailureArtifactManager.capture(driver, testMethod, precomputedFailureFolder)
                         : FailureArtifactManager.capture(driver, testMethod);
@@ -176,10 +189,7 @@ public abstract class BaseTest {
             if (cat == null) cat = createDefaultCategory();
             ht.addTestRecord(cat.type().name(), cat.requiresLogin() ? "Auth" : "Guest",
                     cat.feature(), testClass, testMethod, "FAIL",
-                    result.getEndMillis() - result.getStartMillis(),
-                    artifactFolder,
-                    videoResult != null ? videoResult.path()      : null,
-                    videoResult != null && videoResult.truncated());
+                    result.getEndMillis() - result.getStartMillis());
 
         } else if (result.getStatus() == ITestResult.SUCCESS) {
             TestAnalyticsLogger.get().testPassed(testClass, testMethod);
@@ -189,10 +199,7 @@ public abstract class BaseTest {
             if (cat == null) cat = createDefaultCategory();
             ht.addTestRecord(cat.type().name(), cat.requiresLogin() ? "Auth" : "Guest",
                     cat.feature(), testClass, testMethod, "PASS",
-                    result.getEndMillis() - result.getStartMillis(),
-                    null,
-                    videoResult != null ? videoResult.path()      : null,
-                    videoResult != null && videoResult.truncated());
+                    result.getEndMillis() - result.getStartMillis());
 
         } else if (result.getStatus() == ITestResult.SKIP) {
             TestAnalyticsLogger.get().testSkipped(testClass, testMethod, "Skipped by TestNG");
@@ -245,7 +252,7 @@ public abstract class BaseTest {
             LOG.info("Trend exported (score={})", score);
         } finally {
             DashboardLauncher.launchIfEnabled();
-            quitDriver(); // close the browser before enforcing the gate
+           // quitDriver(); // close the browser before enforcing the gate
             HealthGate.enforce(HealthTracker.get());
         }
     }
@@ -269,7 +276,7 @@ public abstract class BaseTest {
         logPrefs.enable(LogType.BROWSER, Level.ALL);
         options.setCapability("goog:loggingPrefs", logPrefs);
 
-        LOG.info("Launching ChromeDriver (headless={}, thread={})", headless, Thread.currentThread().getId());
+        LOG.info("Launching ChromeDriver (headless={}, thread={})", headless, Thread.currentThread().threadId());
         return new ChromeDriver(options);
     }
 

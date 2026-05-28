@@ -10,6 +10,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class ConnectEditorPage {
@@ -24,6 +25,10 @@ public class ConnectEditorPage {
             "input[placeholder*='action'], input[placeholder*='Action'], " +
             "input[placeholder*='Search'], input[placeholder*='search'], " +
             "input.form-control[placeholder*='app']");
+
+    // Dropdown results for app selection
+    private final By dropdownItems = By.cssSelector(
+            "a.ng-star-inserted, li .landing-apps a, ul.dropdown-ai button");
 
     // Add-menu container (the 3-button panel that appears after clicking +)
     private static final By ADD_MENU_CONTAINER = By.cssSelector(
@@ -286,6 +291,147 @@ public class ConnectEditorPage {
 
         logger.info("Setup step complete.");
         waitShort(1000);
+    }
+
+    /**
+     * Overload of {@link #handleSetupStep()} with a targeted search-term map.
+     *
+     * <p>For each {@code div[id^='menu-drop']} dropdown found in the setup panel,
+     * the field name (from the element's {@code name} attribute or the contained
+     * {@code input[name]}) is looked up in {@code targeted}.  If a match is found,
+     * that value is typed into the dropdown's search box before selecting the first
+     * visible option (so the list is pre-filtered).  Fields absent from the map
+     * receive first-option selection with no search filtering.</p>
+     *
+     * @param targeted map of {@code fieldName → searchTerm}
+     *                 (e.g. {@code "TRI__site_id" → "Appy Pie"})
+     */
+    public void handleSetupStep(Map<String, String> targeted) {
+        logger.info("Handling setup step (targeted): keys={}", targeted.keySet());
+        waitShort(2000);
+
+        List<WebElement> menuDrops = driver.findElements(
+                By.cssSelector("div[id^='menu-drop']"));
+
+        if (menuDrops.isEmpty()) {
+            menuDrops = driver.findElements(By.cssSelector(
+                    "div.multiple-menu div.menu, div.menu.ng-star-inserted"));
+        }
+
+        if (menuDrops.isEmpty()) {
+            logger.info("No custom dropdown fields found — skipping targeted setup step.");
+            return;
+        }
+
+        logger.info("Found {} custom dropdown(s) for targeted setup.", menuDrops.size());
+
+        for (int idx = 0; idx < menuDrops.size(); idx++) {
+            WebElement drop = menuDrops.get(idx);
+            String dropId   = safeAttr(drop, "id",   "menu-drop" + idx);
+            String dropName = safeAttr(drop, "name", "");
+
+            // Resolve field name: element name attr → any input[name] child → empty
+            String fieldName = dropName;
+            if (fieldName.isEmpty()) {
+                try {
+                    List<WebElement> inputs = drop.findElements(By.cssSelector("input[name]"));
+                    for (WebElement inp : inputs) {
+                        String n = safeAttr(inp, "name", "");
+                        if (!n.isEmpty()) { fieldName = n; break; }
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            logger.info("Processing dropdown #{} id='{}' name='{}'", idx, dropId, fieldName);
+
+            // Look up search term by field name first, then by drop id
+            String searchTerm = targeted.getOrDefault(fieldName,
+                               targeted.getOrDefault(dropId, null));
+
+            // For choices-container type fields (no menu_icon-box): fill them INLINE
+            // using fillMindbodyCustomValue, so they are filled BEFORE later dropdowns
+            // (e.g. item_type) potentially re-render and hide them.
+            boolean isMenuIconType = !drop.findElements(
+                    By.cssSelector("div.menu_icon-box")).isEmpty();
+
+            if (!isMenuIconType && searchTerm != null) {
+                logger.info("Dropdown #{} ('{}'): choices-container with targeted value '{}'"
+                        + " — filling inline before later dropdowns", idx, fieldName, searchTerm);
+                try {
+                    fillMindbodyCustomValue(fieldName, searchTerm);
+                    logger.info("Dropdown #{} ('{}'): inline fill complete.", idx, fieldName);
+                } catch (Exception e) {
+                    logger.warn("Dropdown #{} ('{}'): inline fill failed: {}",
+                            idx, fieldName, e.getMessage().split("\n")[0]);
+                }
+            } else {
+                selectFromCustomDropdownWithTerm(drop, idx, fieldName, searchTerm);
+            }
+
+            waitShort(800);
+        }
+
+        logger.info("Targeted setup step complete.");
+        waitShort(1000);
+    }
+
+    /**
+     * Variant of {@link #selectFromCustomDropdown} that accepts an explicit search term.
+     * Opens the dropdown, optionally types {@code searchTerm} in the search box to
+     * pre-filter the list, then clicks the first visible option.
+     */
+    private void selectFromCustomDropdownWithTerm(WebElement drop, int idx,
+                                                  String fieldName, String searchTerm) {
+        boolean isMenuIconType = !drop.findElements(By.cssSelector("div.menu_icon-box")).isEmpty();
+        if (!isMenuIconType) {
+            logger.info("Dropdown #{} ('{}'): choices-container type — skipping in handleSetupStep.", idx, fieldName);
+            return;
+        }
+
+        // Open
+        try {
+            WebElement toggle = drop.findElement(By.cssSelector("div.menu_icon-box, div.menu_icon"));
+            scrollIntoView(toggle);
+            waitShort(300);
+            jsClick(toggle);
+            logger.info("Opened dropdown #{} ('{}')", idx, fieldName);
+        } catch (Exception e) {
+            try {
+                WebElement sv = drop.findElement(By.cssSelector("div#selected_value, div.selected_value"));
+                jsClick(sv);
+            } catch (Exception e2) {
+                logger.warn("Could not open dropdown #{} ('{}'): {}", idx, fieldName, e2.getMessage());
+                return;
+            }
+        }
+
+        waitShort(2000);  // wait for API/async results to load
+
+        // Type search term to pre-filter
+        if (searchTerm != null && !searchTerm.isEmpty()) {
+            try {
+                WebElement searchInput = drop.findElement(By.cssSelector(
+                        "div.choices-search input[placeholder='Search...'], " +
+                        "div.menu_dropdown input.formcontrol"));
+                searchInput.clear();
+                searchInput.sendKeys(searchTerm);
+                logger.info("Typed '{}' in dropdown #{} ('{}') search box.", searchTerm, idx, fieldName);
+                waitShort(1500);
+            } catch (Exception e) {
+                logger.warn("Search input not found in dropdown #{} ('{}'): {}",
+                        idx, fieldName, e.getMessage().split("\n")[0]);
+            }
+        }
+
+        // Click first available option (already filtered by search term if typed)
+        boolean selected = clickFirstOptionInDropdown(drop, idx);
+        if (!selected) {
+            logger.warn("Dropdown #{} ('{}'): no option found after search='{}'.",
+                    idx, fieldName, searchTerm);
+        } else {
+            logger.info("Dropdown #{} ('{}'): option selected (search='{}').",
+                    idx, fieldName, searchTerm);
+        }
     }
 
     /**
@@ -736,88 +882,38 @@ public class ConnectEditorPage {
     //   ✗ WRONG: clicking label.choice-label — Angular handler is on the PARENT li
     //   ✓ RIGHT: clicking li.menu_dropdown-option.choice fires slelectDataFromCustomSampleData()
 
-    /**
-     * How long (seconds) to wait for MANUAL user input after automation fails to map a Gmail
-     * field.  Set via JVM system property {@code -DgmailManualWaitSec=N} (default 15).
-     * Set to 0 to disable the manual-input observation window entirely.
-     */
-    private static final int GMAIL_MANUAL_WAIT_SEC = Integer.parseInt(
-            System.getProperty("gmailManualWaitSec", "15"));
-
     public void fillGmailDraftSetup() {
         logger.info("Filling Gmail Draft setup form (type='text' / menu-drop pattern)...");
         long start = System.currentTimeMillis();
         waitShort(1500);   // let the action-setup panel render
 
         // ── Scroll the setup panel to expose Subject and Body/Message fields ──
+        // Gmail Create Draft renders:  To (top)  →  Subject  →  Message (bottom).
+        // Subject and Message are often below the viewport fold; scroll the panel
+        // container downward so both fields are visible before we interact with them.
         scrollActionPanelToField("Subject");
         waitShort(500);
 
         // Gmail Create Draft: Subject and Body/Message use Angular type='text'.
+        // DOM: div[id='menu-drop{i}'] containing input[name='subject'/'message']
+        //      Choices panel: div[id='scrollheight{i}'] (sibling of pretty-text-box inside menu-drop)
         // Leave 'to' unmapped (Create Draft does not require a recipient).
         String[] fieldsToMap = {"subject", "message"};
         Set<String> mapped = new HashSet<>();
 
         for (String fieldName : fieldsToMap) {
-            String displayLabel = fieldName.equals("subject") ? "Subject" : "Message";
-            scrollActionPanelToField(displayLabel);
+            // Before each field, scroll to bring it into view
+            scrollActionPanelToField(fieldName.equals("subject") ? "Subject" : "Message");
             waitShort(300);
-
-            // ── attempt automation mapping ──────────────────────────────────
             try {
                 mapGmailTextField(fieldName, "ColA");
+                mapped.add(fieldName);
                 waitShort(800);
             } catch (Exception e) {
-                logger.warn("mapGmailTextField('{}') threw: {}", fieldName,
+                logger.warn("Failed to map Gmail field '{}': {}", fieldName,
                         e.getMessage().split("\n")[0]);
             }
-
-            // ── read back the current field value (regardless of how it got set) ──
-            WebElement fieldContainer = findTextFieldContainer(fieldName);
-            String currentValue = readGmailFieldValue(fieldContainer, fieldName);
-
-            if (currentValue != null && !currentValue.isEmpty()) {
-                logger.info("✓ Field '{}' has value after automation attempt → \"{}\"",
-                        fieldName, currentValue);
-                mapped.add(fieldName);
-            } else {
-                logger.warn("✗ Field '{}' is EMPTY after automation — " +
-                            "automation did NOT map a value.", fieldName);
-
-                // ── manual-input observation window ─────────────────────────
-                // If GMAIL_MANUAL_WAIT_SEC > 0, poll so that a tester can manually
-                // fill the field and the terminal captures the interaction.
-                if (GMAIL_MANUAL_WAIT_SEC > 0) {
-                    logger.warn("  ↳ Waiting up to {} s for manual input on '{}' " +
-                                "(override with -DgmailManualWaitSec=0 to skip)...",
-                                GMAIL_MANUAL_WAIT_SEC, fieldName);
-                    String manualValue = waitForManualFieldInput(fieldName, fieldContainer,
-                            GMAIL_MANUAL_WAIT_SEC);
-                    if (manualValue != null && !manualValue.isEmpty()) {
-                        logger.info("  ↳ '{}' was MANUALLY set → \"{}\" (captured for debugging)",
-                                fieldName, manualValue);
-                        mapped.add(fieldName);
-                    } else {
-                        logger.warn("  ↳ '{}' still empty after {}s manual-input window.",
-                                fieldName, GMAIL_MANUAL_WAIT_SEC);
-                    }
-                }
-            }
         }
-
-        // ── final field-value snapshot ──────────────────────────────────────
-        logger.info("─────────────────────────────────────────────────────");
-        logger.info("Gmail Draft field snapshot (post-mapping):");
-        for (String fieldName : fieldsToMap) {
-            WebElement c = findTextFieldContainer(fieldName);
-            String v = readGmailFieldValue(c, fieldName);
-            if (v != null && !v.isEmpty()) {
-                logger.info("  [MAPPED  ] {} → \"{}\"", fieldName, v);
-            } else {
-                logger.warn("  [EMPTY   ] {} → (no value)", fieldName);
-            }
-        }
-        logger.info("─────────────────────────────────────────────────────");
 
         if (mapped.isEmpty()) {
             logger.warn("No Gmail action fields were mapped.");
@@ -825,132 +921,6 @@ public class ConnectEditorPage {
             logger.info("Gmail Draft form mapped fields: {}. Time: {} ms",
                     mapped, System.currentTimeMillis() - start);
         }
-    }
-
-    /**
-     * Reads the current value of a Gmail text field from the DOM.
-     *
-     * <p>Checks two sources in priority order:</p>
-     * <ol>
-     *   <li><b>Hidden input value</b> — {@code input[name='fieldName']} inside the container.
-     *       Angular keeps this in sync with the chip model, so it's the most reliable signal.</li>
-     *   <li><b>Chip text</b> — text content of {@code span.selected_item_repaet} elements
-     *       that are NOT the {@code + Add or Select} placeholder.</li>
-     * </ol>
-     *
-     * @param container the {@code div[id^='menu-drop']} container for the field, or {@code null}
-     * @param fieldName {@code "subject"} or {@code "message"}
-     * @return the mapped value string, or {@code null}/{@code ""} if the field is empty
-     */
-    private String readGmailFieldValue(WebElement container, String fieldName) {
-        if (container == null) return null;
-
-        // 1. Hidden input value (most reliable — Angular keeps it in sync)
-        try {
-            List<WebElement> inputs = container.findElements(
-                    By.cssSelector("input[name='" + fieldName + "'], input[id='" + fieldName + "']"));
-            for (WebElement inp : inputs) {
-                try {
-                    String val = (String) ((JavascriptExecutor) driver)
-                            .executeScript("return arguments[0].value;", inp);
-                    if (val != null && !val.trim().isEmpty()) {
-                        return val.trim();
-                    }
-                } catch (Exception ignored) {}
-            }
-        } catch (Exception ignored) {}
-
-        // 2. Chip text from selected_item_repaet spans (visible chips, excluding placeholder)
-        try {
-            String chipText = (String) ((JavascriptExecutor) driver).executeScript(
-                    "var c = arguments[0];" +
-                    "var chips = Array.from(c.querySelectorAll('.selected_item_repaet'));" +
-                    "var values = chips.map(function(chip) {" +
-                    "  var t = (chip.innerText || '').trim();" +
-                    "  // Exclude the '+ Add or Select' placeholder chip" +
-                    "  return (t && !t.includes('Add or Select') && t !== '+') ? t : '';" +
-                    "}).filter(function(t) { return t.length > 0; });" +
-                    "return values.join(', ');",
-                    container);
-            if (chipText != null && !chipText.trim().isEmpty()) {
-                return chipText.trim();
-            }
-        } catch (Exception ignored) {}
-
-        // 3. editOptions span innerText (the span shows chip values when filled)
-        //
-        // IMPORTANT: This must NOT return plain text that was typed directly into the
-        // contenteditable via typeDirectlyIntoField().  A real Angular chip value looks
-        // like "+\n<alphanumericId>" (the '+' is the chip selector, '\n' separates the
-        // display label from the bound dynamic-value ID).  Plain-typed text like "ColA"
-        // does NOT contain a newline — we exclude it here to avoid false-positive
-        // MAPPED reports when the Angular model was never actually updated.
-        try {
-            String editId = "editOptions[" + fieldName + "]0";
-            List<WebElement> spans = driver.findElements(
-                    By.xpath("//span[@id='" + editId + "']"));
-            for (WebElement span : spans) {
-                try {
-                    String t = span.getAttribute("innerText");
-                    if (t == null) t = span.getText();
-                    t = t == null ? "" : t.trim();
-                    // Must be non-empty, not a placeholder, and contain a newline —
-                    // the newline is the reliable indicator of a real chip binding
-                    // (format: "+\n<dynamicValueId>").
-                    if (!t.isEmpty() && !t.contains("Add or Select") && !t.equals("+")
-                            && t.contains("\n")) {
-                        return t;
-                    }
-                } catch (Exception ignored) {}
-            }
-        } catch (Exception ignored) {}
-
-        return null;
-    }
-
-    /**
-     * Polls the Gmail field value every 2 seconds for up to {@code timeoutSec} seconds,
-     * logging progress so a tester who manually fills the field can see their input captured.
-     *
-     * <p>Used as the manual-input observation window when automation fails to map a field.
-     * The log output helps identify the exact DOM state at the time of a successful fill,
-     * which can then be used to improve the automation logic.</p>
-     *
-     * @param fieldName  the field name ({@code "subject"} or {@code "message"})
-     * @param container  the field's {@code menu-drop} container element (may be {@code null})
-     * @param timeoutSec how long to wait
-     * @return the value if it appeared within the timeout, or {@code null}
-     */
-    private String waitForManualFieldInput(String fieldName, WebElement container,
-                                           int timeoutSec) {
-        long deadline = System.currentTimeMillis() + (timeoutSec * 1000L);
-        int pollInterval = 2_000;
-        int elapsed = 0;
-
-        while (System.currentTimeMillis() < deadline) {
-            try { Thread.sleep(pollInterval); } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt(); break;
-            }
-            elapsed += pollInterval;
-
-            // Re-fetch container on every poll (DOM may refresh)
-            WebElement c = container;
-            try { if (c == null || !isInDom(c)) c = findTextFieldContainer(fieldName); }
-            catch (Exception ignored) {}
-
-            String val = readGmailFieldValue(c, fieldName);
-            if (val != null && !val.isEmpty()) {
-                return val;
-            }
-
-            // Progress tick every 6 seconds so the terminal shows activity
-            if (elapsed % 6_000 == 0) {
-                int remaining = (int) ((deadline - System.currentTimeMillis()) / 1000);
-                logger.info("  [manual-wait] '{}' still empty — {}s remaining. " +
-                            "Please fill the field manually if testing.", fieldName, remaining);
-            }
-        }
-        return null;
     }
 
     /**
@@ -1069,10 +1039,7 @@ public class ConnectEditorPage {
         //   Takes all pretty-text-box elements on the page; subject → index 0,
         //   message → index 1.  This works even when the container lookup fails.
 
-        boolean clicked  = false;
-        // Declared here so quick-select (called immediately after panel opens) can set it true
-        // before the slower Selenium option-search steps run.
-        boolean selected = false;
+        boolean clicked = false;
 
         // — Strategy A —
         String[] labelVariants = fieldName.equalsIgnoreCase("subject")
@@ -1117,14 +1084,10 @@ public class ConnectEditorPage {
                 if (triggerEl != null && isInDom(triggerEl)) {
                     scrollWithinPanel(triggerEl);
                     waitShort(300);
-                    tryClickUntilPanelOpens(triggerEl, fieldName, "A:" + lbl);
-                    if (isChoicesSearchVisible()) {
-                        clicked = true;
-                        if (!selected) { waitShort(400); selected = jsQuickSelectFromVisiblePanel(columnName, fieldName); }
-                        logger.info("Field '{}': strategy-A click near label '{}' opened panel (quick-select: {})", fieldName, lbl, selected);
-                    } else {
-                        logger.debug("Field '{}': strategy-A click near label '{}' — panel not visible", fieldName, lbl);
-                    }
+                    angularClick(triggerEl);
+                    waitShort(900);
+                    clicked = true;
+                    logger.info("Field '{}': strategy-A clicked pretty-text-box near label '{}'", fieldName, lbl);
                 }
             } catch (Exception e) {
                 logger.debug("Field '{}': strategy-A failed for label '{}': {}",
@@ -1133,131 +1096,49 @@ public class ConnectEditorPage {
         }
 
         // — Strategy B —
-        //
-        // `clicked` is only set to true when isChoicesSearchVisible() confirms the
-        // choices-search panel is actually open — not merely because we clicked something.
-        //
-        // From live DOM snapshots (provided by user):
-        //   Subject: span[id='editOptions[subject]0'] > span.readmorebutton2 > div  (contains "+ Add or Select")
-        //   Body:    span[id='editOptions[message]0'] > span.readmorebutton2 > div  (contains "+ Add or Select")
-        //
-        // These IDs are the definitive click targets.  The Angular (click) handler on the
-        // inner div opens the choices-search panel scoped to the correct field.
         WebElement container = null;
         if (!clicked) {
             container = findTextFieldContainer(fieldName);
             if (container != null) {
-                logger.info("Field '{}': container='{}' found", fieldName, safeAttr(container, "id", "?"));
+                logger.info("Field '{}': container='{}' found via ID strategy", fieldName,
+                        safeAttr(container, "id", "?"));
                 scrollWithinPanel(container);
-                waitShort(400);
-
-                // — B0: direct editOptions[fieldName] ID → inner "Add or Select" div ─────────
-                // This is the most precise target — derived from the live DOM snapshot.
-                // editOptions[subject]0 / editOptions[message]0 are unique per field.
-                String editOptionsId = "editOptions[" + fieldName + "]0";
-                try {
-                    // Use XPath attribute selector so [ ] in the ID are handled literally
-                    List<WebElement> editSpans = driver.findElements(
-                            By.xpath("//span[@id='" + editOptionsId + "']"));
-                    for (WebElement editSpan : editSpans) {
-                        if (!isInDom(editSpan)) continue;
-                        scrollWithinPanel(editSpan);
-                        waitShort(200);
-
-                        // Prefer the inner <div> inside span.readmorebutton2 (the visible trigger div)
-                        WebElement innerDiv = null;
-                        try {
-                            innerDiv = editSpan.findElement(
-                                    By.cssSelector("span.readmorebutton2 > div, " +
-                                                   "span.nothighlightbox > div"));
-                        } catch (Exception ignored) {}
-
-                        WebElement target = (innerDiv != null) ? innerDiv : editSpan;
-                        scrollWithinPanel(target);
-                        waitShort(200);
-                        tryClickUntilPanelOpens(target, fieldName, "B0:editOptions[" + fieldName + "]0");
-                        if (isChoicesSearchVisible()) {
-                            clicked = true;
-                            if (!selected) { waitShort(400); selected = jsQuickSelectFromVisiblePanel(columnName, fieldName); }
-                            logger.info("Field '{}': B0 editOptions ID click opened panel (target={}, quick-select: {})",
-                                    fieldName, (innerDiv != null ? "inner div" : "span"), selected);
-                            break;
-                        }
-                    }
-                    if (!clicked) {
-                        logger.debug("Field '{}': B0 editOptions ID '{}' found {} span(s) but panel not opened",
-                                fieldName, editOptionsId, editSpans.size());
-                    }
-                } catch (Exception e) {
-                    logger.debug("Field '{}': B0 failed: {}", fieldName, e.getMessage().split("\n")[0]);
-                }
-
-                // — B1: span.readmorebutton2 > div (from HTML snapshot, fallback) ──────────
-                if (!clicked) {
+                waitShort(300);
+                String[] childSelectors = {
+                    "div.pretty-text-box",
+                    "div.checkIfNotBlurAfteraWhile",
+                    "div.contenteditable6",
+                    "span.selected_item_repaet",
+                    "span.selected_value"
+                };
+                for (String sel : childSelectors) {
+                    if (clicked) break;
                     try {
-                        List<WebElement> rmbDivs = container.findElements(
-                                By.cssSelector("span.readmorebutton2 > div, span.nothighlightbox > div"));
-                        for (WebElement rmbDiv : rmbDivs) {
-                            if (!isInDom(rmbDiv)) continue;
-                            scrollWithinPanel(rmbDiv);
-                            waitShort(200);
-                            tryClickUntilPanelOpens(rmbDiv, fieldName, "B1:readmorebutton2>div");
-                            if (isChoicesSearchVisible()) {
+                        List<WebElement> hits = container.findElements(By.cssSelector(sel));
+                        for (WebElement el : hits) {
+                            if (isInDom(el)) {
+                                scrollWithinPanel(el);
+                                waitShort(200);
+                                angularClick(el);
+                                waitShort(900);
                                 clicked = true;
-                                if (!selected) { waitShort(400); selected = jsQuickSelectFromVisiblePanel(columnName, fieldName); }
-                                logger.info("Field '{}': B1 span.readmorebutton2>div click opened panel (quick-select: {})", fieldName, selected);
+                                logger.info("Field '{}': strategy-B clicked '{}' in container", fieldName, sel);
                                 break;
                             }
                         }
-                    } catch (Exception e) {
-                        logger.debug("Field '{}': B1 failed: {}", fieldName, e.getMessage().split("\n")[0]);
-                    }
+                    } catch (Exception ignored) {}
                 }
-
-                // — B2: ordered class-selector cascade ─────────────────────────────────────
                 if (!clicked) {
-                    String[] childSelectors = {
-                        "span.readmorebutton2",            // the nothighlightbox span wrapping the trigger
-                        "span.selected_item_repaet",       // outer chip/add-button wrapper
-                        "div#scrollhorz",                  // widthpre horizontal-scroll container
-                        "span.selected_value",             // selected_value span
-                        "div.pretty-text-box"              // outer styled box (last resort)
-                    };
-                    for (String sel : childSelectors) {
-                        if (clicked) break;
-                        try {
-                            List<WebElement> hits = container.findElements(By.cssSelector(sel));
-                            for (WebElement el : hits) {
-                                if (!isInDom(el)) continue;
-                                scrollWithinPanel(el);
-                                waitShort(200);
-                                tryClickUntilPanelOpens(el, fieldName, "B2:" + sel);
-                                if (isChoicesSearchVisible()) {
-                                    clicked = true;
-                                    if (!selected) { waitShort(400); selected = jsQuickSelectFromVisiblePanel(columnName, fieldName); }
-                                    logger.info("Field '{}': B2 '{}' opened panel (quick-select: {})", fieldName, sel, selected);
-                                    break;
-                                }
-                            }
-                        } catch (Exception ignored) {}
-                    }
-                }
-
-                // — B3: container itself ────────────────────────────────────────────────────
-                if (!clicked) {
+                    // Click the container itself as last resort for strategy-B
                     try {
-                        tryClickUntilPanelOpens(container, fieldName, "B3:container");
-                        if (isChoicesSearchVisible()) {
-                            clicked = true;
-                            if (!selected) { waitShort(400); selected = jsQuickSelectFromVisiblePanel(columnName, fieldName); }
-                            logger.warn("Field '{}': B3 container click opened panel (quick-select: {})", fieldName, selected);
-                        } else {
-                            logger.warn("Field '{}': B3 container click did NOT open panel", fieldName);
-                        }
+                        angularClick(container);
+                        waitShort(900);
+                        clicked = true;
+                        logger.warn("Field '{}': strategy-B clicked container itself", fieldName);
                     } catch (Exception ignored) {}
                 }
             } else {
-                logger.warn("Field '{}': findTextFieldContainer returned null — falling to strategy-C", fieldName);
+                logger.warn("Field '{}': findTextFieldContainer returned null — trying global positional", fieldName);
             }
         }
 
@@ -1306,14 +1187,10 @@ public class ConnectEditorPage {
                     WebElement trigger = nonToBoxes.get(targetIdx);
                     scrollWithinPanel(trigger);
                     waitShort(300);
-                    tryClickUntilPanelOpens(trigger, fieldName, "C:box[" + targetIdx + "]");
-                    if (isChoicesSearchVisible()) {
-                        clicked = true;
-                        if (!selected) { waitShort(400); selected = jsQuickSelectFromVisiblePanel(columnName, fieldName); }
-                        logger.info("Field '{}': strategy-C non-To box[{}] opened panel (quick-select: {})", fieldName, targetIdx, selected);
-                    } else {
-                        logger.warn("Field '{}': strategy-C non-To box[{}] click did not open panel", fieldName, targetIdx);
-                    }
+                    angularClick(trigger);
+                    waitShort(900);
+                    clicked = true;
+                    logger.info("Field '{}': strategy-C clicked non-To box[{}]", fieldName, targetIdx);
                 } else {
                     logger.warn("Field '{}': strategy-C found only {} non-To box(es), need index {}",
                             fieldName, nonToBoxes.size(), targetIdx);
@@ -1323,114 +1200,46 @@ public class ConnectEditorPage {
             }
         }
 
-        // ── Ensure container is resolved for scoped searches ─────────────────
-        // Strategy A / C may have clicked without setting `container`.  We need a
-        // container reference for ALL subsequent scoped DOM searches (expander, options)
-        // so that selections go into the CORRECT field, not into the "To" field which
-        // happens to appear first in global DOM order.
-        if (container == null) {
-            container = findTextFieldContainer(fieldName);
-            if (container != null) {
-                logger.debug("Field '{}': container resolved post-click for scoping", fieldName);
-            }
-        }
-        // Convenience alias — use container for scoped finds, body as last resort
-        final WebElement scope = (container != null) ? container : driver.findElement(By.tagName("body"));
-
-        // ── 2. Locate the choices-search input ───────────────────────────────
-        // The choices-search.NewOption_4 panel may close quickly after the trigger
-        // click (Angular blur handling).  Try three locations in priority order:
-        //   a) scoped inside the field's own container (most precise — avoids "To" panel)
-        //   b) globally visible (in case the panel rendered as an overlay)
-        //   c) give up gracefully — option selection below works without the search input
+        // ── 2. Wait for div.choices-search → input.formcontrol to appear ──────
+        // The panel (div.choices-search.NewOption_4) renders after the click above.
+        // It may be an Angular overlay/portal anywhere in the DOM — always search globally.
         WebElement searchInput = null;
-
-        // a) scoped: inside the field's container
         try {
-            List<WebElement> scoped = scope.findElements(
-                    By.cssSelector("div.choices-search input.formcontrol, " +
-                                   "div.choices-search input[placeholder='Search...']"));
-            for (WebElement inp : scoped) {
-                try { if (inp.isDisplayed()) { searchInput = inp; break; } }
-                catch (Exception ignored) {}
-            }
-            if (searchInput != null) {
-                logger.info("Field '{}': choices-search input found (scoped to container)", fieldName);
-            }
-        } catch (Exception ignored) {}
-
-        // b) global: short wait for any visible formcontrol
-        if (searchInput == null) {
-            try {
-                searchInput = new WebDriverWait(driver, Duration.ofSeconds(2))
-                        .until(ExpectedConditions.visibilityOfElementLocated(
-                                By.cssSelector("div.choices-search input.formcontrol, " +
-                                               "div.choices-search input[placeholder='Search...']")));
-                logger.info("Field '{}': choices-search input found (global)", fieldName);
-            } catch (Exception e) {
-                logger.warn("Field '{}': choices-search input not visible — will rely on always-visible options in container",
-                        fieldName);
-            }
+            searchInput = new WebDriverWait(driver, Duration.ofSeconds(10))
+                    .until(ExpectedConditions.visibilityOfElementLocated(
+                            By.cssSelector("div.choices-search input.formcontrol, " +
+                                           "div.choices-search input[placeholder='Search...']")));
+            logger.info("Field '{}': choices-search panel appeared (formcontrol visible)", fieldName);
+        } catch (Exception e) {
+            logger.warn("Field '{}': choices-search panel did not appear after click — {}", fieldName,
+                    e.getMessage().split("\n")[0]);
         }
 
         // ── 3. Type the search term ───────────────────────────────────────────
-        // IMPORTANT: Do NOT use searchInput.clear() + sendKeys() here.
-        // Selenium's keyboard-level events (Ctrl+A → Delete → keystroke) can fire
-        // Angular's blur handler and close the choices panel before we can read the
-        // filtered results.  Instead, we set the input's value via JavaScript and fire
-        // the minimal synthetic events Angular needs to update its internal filter model.
         if (searchInput != null) {
             try {
                 scrollWithinPanel(searchInput);
-                ((JavascriptExecutor) driver).executeScript(
-                        "var inp = arguments[0], val = arguments[1];" +
-                        // Clear first (empty input + input event → Angular clears filter)
-                        "inp.value = '';" +
-                        "inp.dispatchEvent(new Event('input', {bubbles:true}));" +
-                        // Set the new value
-                        "inp.value = val;" +
-                        "inp.dispatchEvent(new Event('input',  {bubbles:true, cancelable:true}));" +
-                        "inp.dispatchEvent(new Event('change', {bubbles:true}));",
-                        searchInput, columnName);
-                logger.info("Field '{}': typed '{}' in formcontrol (JS, no-blur)", fieldName, columnName);
-                // Give Angular time to filter the options list (async API or local filter)
-                waitShort(1800);
-                // If the panel closed despite the no-blur approach, null out searchInput
-                // so pass-C does not attempt to clear a stale element reference.
-                if (!isChoicesSearchVisible()) {
-                    logger.warn("Field '{}': panel closed after JS-type — scoped options will be used as-is", fieldName);
-                    searchInput = null;
-                }
+                searchInput.clear();
+                searchInput.sendKeys(columnName);
+                logger.info("Field '{}': typed '{}' in formcontrol", fieldName, columnName);
+                waitShort(1200);
             } catch (Exception e) {
-                logger.warn("Field '{}': JS-type in formcontrol failed — {}", fieldName,
+                logger.warn("Field '{}': sendKeys to formcontrol failed — {}", fieldName,
                         e.getMessage().split("\n")[0]);
-                searchInput = null;   // treat as if search wasn't typed
             }
         }
 
-        // ── 4. Expand the step expander ───────────────────────────────────────
-        // SCOPED TO CONTAINER: expand ONLY the expander inside this field's container
-        // (menu-drop1 for subject, menu-drop2 for message).  Global search would pick
-        // the "To" field's expander first (DOM order: To < Subject < Message).
+        // ── 4. Expand the step expander so choices render ─────────────────────
         try {
-            List<WebElement> expanders = scope.findElements(
+            List<WebElement> expanders = driver.findElements(
                     By.cssSelector("li.samlpe-title > a, li.sample-title > a"));
             for (WebElement exp : expanders) {
                 if (isInDom(exp)) {
                     scrollWithinPanel(exp);
                     waitShort(200);
                     jsClick(exp);
-                    // Wait for the expander to reveal its child options.
-                    // Angular may need a tick to render them, and the text of the
-                    // expander itself may not be available immediately (async load).
-                    // Poll until the expander has non-empty text OR up to 1500ms.
-                    String expanderText = "";
-                    for (int w = 0; w < 3; w++) {
-                        waitShort(500);
-                        try { expanderText = exp.getText().trim(); } catch (Exception ignored) {}
-                        if (!expanderText.isEmpty()) break;
-                    }
-                    logger.info("Field '{}': expander clicked ('{}')", fieldName, expanderText);
+                    waitShort(700);
+                    logger.info("Field '{}': step row expanded ('{}')", fieldName, exp.getText().trim());
                     break;
                 }
             }
@@ -1439,54 +1248,46 @@ public class ConnectEditorPage {
                     e.getMessage().split("\n")[0]);
         }
 
-        // ── 5. Select an option ───────────────────────────────────────────────
-        // ALL option searches are SCOPED TO THE FIELD'S CONTAINER.
-        // Searching globally finds the "To" field's li.menu_dropdown-option.choice
-        // elements first (DOM order), which causes the value to be mapped into "To"
-        // instead of Subject or Message.  Scoping prevents cross-field contamination.
-        // NOTE: `selected` is declared at the top; may already be true if
-        //        jsQuickSelectFromVisiblePanel() succeeded immediately after the click.
-        if (!selected) waitShort(300);
+        // ── 5. Click the first matching option ────────────────────────────────
+        boolean selected = false;
+        waitShort(300);
 
-        // Pass A: visible text match within container
-        // isDisplayed() guard is critical — options inside a CLOSED choices panel
-        // are still in the DOM but not visible and cannot be clicked.
+        // Pass A: text match
         try {
-            List<WebElement> options = scope.findElements(
+            List<WebElement> options = driver.findElements(
                     By.cssSelector("li.menu_dropdown-option.choice"));
-            logger.info("Field '{}': {} option(s) in container after expand", fieldName, options.size());
+            logger.info("Field '{}': {} option(s) visible after search", fieldName, options.size());
             for (WebElement opt : options) {
                 try {
-                    if (!isInDom(opt) || !opt.isDisplayed()) continue;  // skip hidden options
                     String text = opt.getText().trim();
-                    if (!text.isEmpty() && text.contains(columnName)) {
+                    if (!text.isEmpty() && text.contains(columnName) && isInDom(opt)) {
                         scrollWithinPanel(opt);
                         waitShort(100);
                         jsClick(opt);
-                        logger.info("Field '{}': pass-A selected '{}' (scoped)", fieldName, text);
+                        logger.info("Field '{}': pass-A selected '{}'", fieldName, text);
                         selected = true;
                         break;
                     }
                 } catch (StaleElementReferenceException ignored) {}
             }
         } catch (Exception e) {
-            logger.debug("Field '{}': pass-A failed — {}", fieldName,
+            logger.debug("Field '{}': pass-A option scan failed — {}", fieldName,
                     e.getMessage().split("\n")[0]);
         }
 
-        // Pass B: first non-empty visible option within container
+        // Pass B: first visible option
         if (!selected) {
-            logger.warn("Field '{}': text match for '{}' not found — selecting first scoped option", fieldName, columnName);
+            logger.warn("Field '{}': text match for '{}' not found — trying first visible option", fieldName, columnName);
             try {
-                List<WebElement> options = scope.findElements(
+                List<WebElement> options = driver.findElements(
                         By.cssSelector("li.menu_dropdown-option.choice"));
                 for (WebElement opt : options) {
                     try {
-                        if (isInDom(opt) && opt.isDisplayed()) {
+                        if (isInDom(opt)) {
                             scrollWithinPanel(opt);
                             waitShort(100);
                             jsClick(opt);
-                            logger.info("Field '{}': pass-B selected '{}' (scoped)", fieldName, opt.getText().trim());
+                            logger.info("Field '{}': pass-B selected '{}'", fieldName, opt.getText().trim());
                             selected = true;
                             break;
                         }
@@ -1498,47 +1299,32 @@ public class ConnectEditorPage {
             }
         }
 
-        // Pass C: clear search + retry within container
-        // Uses JS to clear the input — avoids the "element not interactable" error
-        // that Selenium's searchInput.clear() throws if the panel has already closed
-        // and the element became stale.  Also filters to visible options only.
+        // Pass C: clear search and try again
         if (!selected && searchInput != null) {
-            logger.warn("Field '{}': no options matched — clearing search and retrying (scoped)", fieldName);
-            boolean cleared = false;
+            logger.warn("Field '{}': no options matched — clearing search and retrying", fieldName);
             try {
-                ((JavascriptExecutor) driver).executeScript(
-                        "arguments[0].value = '';" +
-                        "arguments[0].dispatchEvent(new Event('input', {bubbles:true}));",
-                        searchInput);
-                cleared = true;
+                searchInput.clear();
                 waitShort(800);
-            } catch (Exception e) {
-                logger.warn("Field '{}': pass-C JS-clear failed (panel likely closed) — {}",
-                        fieldName, e.getMessage().split("\n")[0]);
-            }
-            if (cleared) {
-                try {
-                    List<WebElement> options = scope.findElements(
-                            By.cssSelector("li.menu_dropdown-option.choice"));
-                    for (WebElement opt : options) {
-                        try {
-                            if (isInDom(opt) && opt.isDisplayed()) {
-                                scrollWithinPanel(opt);
-                                jsClick(opt);
-                                logger.info("Field '{}': pass-C selected '{}' (scoped)", fieldName, opt.getText().trim());
-                                selected = true;
-                                break;
-                            }
-                        } catch (StaleElementReferenceException ignored) {}
-                    }
-                } catch (Exception e) {
-                    logger.warn("Field '{}': pass-C option select failed — {}", fieldName,
-                            e.getMessage().split("\n")[0]);
+                List<WebElement> options = driver.findElements(
+                        By.cssSelector("li.menu_dropdown-option.choice"));
+                for (WebElement opt : options) {
+                    try {
+                        if (isInDom(opt)) {
+                            scrollWithinPanel(opt);
+                            jsClick(opt);
+                            logger.info("Field '{}': pass-C selected '{}'", fieldName, opt.getText().trim());
+                            selected = true;
+                            break;
+                        }
+                    } catch (StaleElementReferenceException ignored) {}
                 }
+            } catch (Exception e) {
+                logger.warn("Field '{}': pass-C failed — {}", fieldName,
+                        e.getMessage().split("\n")[0]);
             }
         }
 
-        // Pass D: direct text input fallback
+        // Pass D: direct text input — type directly into contenteditable
         if (!selected) {
             logger.warn("Field '{}': no choices selected — falling back to direct text input", fieldName);
             selected = typeDirectlyIntoField(container, fieldName, columnName);
@@ -1715,156 +1501,6 @@ public class ConnectEditorPage {
     }
 
     /**
-     * Returns {@code true} if the choices-search panel's search input is currently
-     * visible anywhere on the page.
-     *
-     * <p>Used as a fast boolean check after every trigger click so we only advance
-     * to typing once the panel has actually opened — rather than assuming every
-     * click succeeded.</p>
-     */
-    private boolean isChoicesSearchVisible() {
-        try {
-            List<WebElement> inputs = driver.findElements(
-                    By.cssSelector("div.choices-search input.formcontrol, " +
-                                   "div.choices-search input[placeholder='Search...']"));
-            for (WebElement inp : inputs) {
-                try { if (inp.isDisplayed()) return true; } catch (Exception ignored) {}
-            }
-        } catch (Exception ignored) {}
-        return false;
-    }
-
-    /**
-     * Finds the currently-visible {@code div.choices-search} panel and immediately
-     * selects an option that contains {@code columnName} — all in a single JavaScript
-     * call to avoid the round-trip latency that would let Angular's blur handler
-     * close the panel before Selenium's multi-step find+click sequence completes.
-     *
-     * <p>The method:</p>
-     * <ol>
-     *   <li>Locates the visible choices panel via {@code getBoundingClientRect}.</li>
-     *   <li>Sets the search-input value to {@code columnName} and dispatches {@code input}
-     *       + {@code change} events so Angular filters the list.</li>
-     *   <li>Searches for an option whose {@code innerText} contains {@code columnName}
-     *       (case-insensitive); falls back to the first non-empty option.</li>
-     *   <li>Clicks the matched option and returns {@code true}.</li>
-     * </ol>
-     *
-     * @return {@code true} if an option was clicked; {@code false} if no panel was
-     *         visible or no options were found
-     */
-    private boolean jsQuickSelectFromVisiblePanel(String columnName, String fieldName) {
-        try {
-            Object raw = ((JavascriptExecutor) driver).executeScript(
-                    "var col = arguments[0];" +
-                    // ── 1. Find the visible choices-search panel ──────────────────────────
-                    "var panels = document.querySelectorAll('div.choices-search');" +
-                    "var panel = null;" +
-                    "for (var i = 0; i < panels.length; i++) {" +
-                    "  var p = panels[i];" +
-                    "  var r = p.getBoundingClientRect();" +
-                    "  if (r.width > 0 && r.height > 0 && p.offsetParent !== null) { panel = p; break; }" +
-                    "}" +
-                    "if (!panel) return 'no-panel';" +
-                    // ── 2. Filter via search input ────────────────────────────────────────
-                    "var inp = panel.querySelector(" +
-                    "    'input.formcontrol, input[placeholder=\"Search...\"], input[type=\"search\"]');" +
-                    "if (inp) {" +
-                    "  inp.value = col;" +
-                    "  inp.dispatchEvent(new Event('input',  {bubbles:true}));" +
-                    "  inp.dispatchEvent(new Event('change', {bubbles:true}));" +
-                    "}" +
-                    // ── 3. Locate matching option ─────────────────────────────────────────
-                    "var opts = panel.querySelectorAll(" +
-                    "    'li.menu_dropdown-option.choice, li.choice, li[class*=\"choice\"]');" +
-                    "var colLower = col.toLowerCase();" +
-                    // Pass 1: exact text-contains match
-                    "for (var j = 0; j < opts.length; j++) {" +
-                    "  var txt = (opts[j].innerText || opts[j].textContent || '').trim();" +
-                    "  if (txt && txt.toLowerCase().indexOf(colLower) !== -1) {" +
-                    "    opts[j].click(); return 'selected:' + txt;" +
-                    "  }" +
-                    "}" +
-                    // Pass 2: first non-empty option (fallback)
-                    "for (var j = 0; j < opts.length; j++) {" +
-                    "  var txt = (opts[j].innerText || opts[j].textContent || '').trim();" +
-                    "  if (txt) { opts[j].click(); return 'first:' + txt; }" +
-                    "}" +
-                    "return 'no-options:' + opts.length;",
-                    columnName);
-
-            String res = (raw == null) ? "null" : raw.toString();
-            if (res.startsWith("selected:") || res.startsWith("first:")) {
-                logger.info("Field '{}': jsQuickSelectFromVisiblePanel → {}", fieldName, res);
-                return true;
-            }
-            logger.debug("Field '{}': jsQuickSelectFromVisiblePanel → {} (no selection made)", fieldName, res);
-            return false;
-        } catch (Exception e) {
-            logger.debug("Field '{}': jsQuickSelectFromVisiblePanel threw: {}",
-                    fieldName, e.getMessage().split("\n")[0]);
-            return false;
-        }
-    }
-
-    /**
-     * Tries to click {@code el} using three methods in sequence, stopping as soon as
-     * the choices-search panel becomes visible:
-     * <ol>
-     *   <li>Native Selenium {@code click()} — generates real browser-level events.</li>
-     *   <li>{@link #jsClick(WebElement)} — JavaScript {@code element.click()}.</li>
-     *   <li>{@link #angularClick(WebElement)} — full mousedown+mouseup+click dispatch.</li>
-     * </ol>
-     *
-     * @param el         element to click
-     * @param fieldName  field being mapped (for log context)
-     * @param hint       short label for the log (e.g. {@code "B2:span.selected_item_repaet"})
-     */
-    private void tryClickUntilPanelOpens(WebElement el, String fieldName, String hint) {
-        // Attempt 1 — native Selenium click (real browser event, zone.js picks it up)
-        try {
-            el.click();
-            waitShort(600);
-            if (isChoicesSearchVisible()) {
-                logger.info("Field '{}': [{}] native click → panel opened", fieldName, hint);
-                return;
-            }
-        } catch (Exception e) {
-            logger.debug("Field '{}': [{}] native click threw: {}", fieldName, hint,
-                    e.getMessage().split("\n")[0]);
-        }
-
-        // Attempt 2 — JavaScript element.click() (bypasses interception overlays)
-        try {
-            jsClick(el);
-            waitShort(600);
-            if (isChoicesSearchVisible()) {
-                logger.info("Field '{}': [{}] jsClick → panel opened", fieldName, hint);
-                return;
-            }
-        } catch (Exception e) {
-            logger.debug("Field '{}': [{}] jsClick threw: {}", fieldName, hint,
-                    e.getMessage().split("\n")[0]);
-        }
-
-        // Attempt 3 — full mousedown+mouseup+click dispatch (some Angular components
-        // only respond to the full event chain dispatched on the exact element)
-        try {
-            angularClick(el);
-            waitShort(600);
-            if (isChoicesSearchVisible()) {
-                logger.info("Field '{}': [{}] angularClick → panel opened", fieldName, hint);
-            } else {
-                logger.debug("Field '{}': [{}] all 3 click methods tried — panel still not visible",
-                        fieldName, hint);
-            }
-        } catch (Exception e) {
-            logger.debug("Field '{}': [{}] angularClick threw: {}", fieldName, hint,
-                    e.getMessage().split("\n")[0]);
-        }
-    }
-
-    /**
      * Dispatches a full {@code mousedown → mouseup → click} event sequence on {@code el}
      * via JavaScript, then falls back to Selenium's {@code click()} / {@link #jsClick(WebElement)}.
      *
@@ -1937,6 +1573,377 @@ public class ConnectEditorPage {
             return Boolean.TRUE.equals(((JavascriptExecutor) driver)
                     .executeScript("return arguments[0] != null && arguments[0].isConnected;", el));
         } catch (Exception e) { return false; }
+    }
+
+    // ─── Mindbody Create Sale setup ────────────────────────────────────────────
+
+    /**
+     * Fills the Mindbody "Create Sale" action setup form.
+     *
+     * Auto-fill mode (default): reads quantity/amount/notes from system properties
+     * (-Dquantity=1, -Damount=1000, -Dnotes=Testing) and types them into the
+     * corresponding fields via the checkIfNotBlurAfteraWhile → contenteditable6 pattern.
+     *
+     * Manual-wait mode: activated when both quantity AND amount properties are blank.
+     * Polls for up to -DmanualTimeout=300 seconds, draining the JS interaction log
+     * every 2 s.
+     */
+    /**
+     * Fills the Notes field in the Mindbody "Create Sale" action setup panel.
+     *
+     * <p>Execution sequence (enforced by caller):</p>
+     * <pre>
+     *   handleSetupStep(Map) processes:
+     *     site → client → product → quantity (inline) → amount (inline)
+     *     → location → sendEmail → p_type → item_type → service_id
+     *     → package_id → staff (SalesRepId)
+     *   fillMindbodySaleSetup() runs AFTER all of the above → fills notes
+     * </pre>
+     *
+     * <p>quantity and amount are handled inline inside {@link #handleSetupStep(Map)}
+     * at their DOM positions (#4 and #5, right after product #3), so they are filled
+     * BEFORE item_type changes the form state.</p>
+     */
+    public void fillMindbodySaleSetup() {
+        String notesVal = System.getProperty("notes", "Testing").trim();
+
+        if (!notesVal.isEmpty()) {
+            // Scroll to bottom first so any lazy-rendered Notes field gets mounted
+            scrollActionPanelToBottom();
+            waitShort(800);
+
+            // Try the most likely field names for Notes — Mindbody's API uses several
+            // spellings depending on the action variant.  Confirmed from DOM snapshot:
+            //   id="editOptions[cash_note]0"  →  field name is "cash_note"
+            String[] notesFieldVariants = {"cash_note", "cashNote", "CashNote",
+                                           "notes", "Notes", "note", "Note",
+                                           "SaleNotes", "saleNotes", "sale_notes",
+                                           "description", "Description", "comment", "Comment"};
+            boolean filled = false;
+            for (String variant : notesFieldVariants) {
+                try {
+                    fillMindbodyCustomValue(variant, notesVal);
+                    logger.info("[Mindbody] ✓ Notes filled via field name '{}' with '{}'.",
+                            variant, notesVal);
+                    filled = true;
+                    break;
+                } catch (Exception e) {
+                    String msg = e.getMessage().split("\n")[0];
+                    // Only log at debug for "container not found" — that just means
+                    // this name variant doesn't exist; keep trying.
+                    if (msg.contains("menu-drop container not found")) {
+                        logger.debug("[Mindbody] Notes variant '{}' not present — trying next", variant);
+                    } else {
+                        logger.warn("[Mindbody] Notes variant '{}' failed: {}", variant, msg);
+                    }
+                }
+            }
+            if (!filled) {
+                logger.warn("[Mindbody] No Notes field found under any known name "
+                        + "(tried: notes/Notes/note/Note/SaleNotes/description/comment). "
+                        + "Field may not exist in this Mindbody action variant.");
+            }
+        }
+
+        logger.info("[Mindbody] Post-staff field processing complete.");
+    }
+
+    /**
+     * Fills a Mindbody type='text' custom-value field (quantity, amount, notes).
+     *
+     * <p><b>Angular DOM (from app-edit-options.component.html lines 905–940):</b></p>
+     * <pre>
+     * &lt;span id="editOptions[{name}]0"&gt;
+     *   &lt;span class="readmorebutton2"&gt;
+     *     [blank state, value==undefined]
+     *     &lt;div (click)="toggleAddToSelect(...)"&gt;+ Add or Select&lt;/div&gt;
+     *
+     *     [post-click, value=='']
+     *     &lt;div class="contenteditable6" contenteditable="true"
+     *          placeholder="Click to enter custom value"
+     *          (keyup)="setTextFieldValue(...)"
+     *          (blur)="blurHandler(...)"&gt;&lt;/div&gt;
+     *   &lt;/span&gt;
+     * &lt;/span&gt;
+     * </pre>
+     *
+     * <p><b>Flow:</b></p>
+     * <ol>
+     *   <li>Locate {@code div[id^='menu-drop'][name='{fieldName}']}.</li>
+     *   <li>Find the "+ Add or Select" trigger:
+     *       {@code span[id='editOptions[{fieldName}]0'] span.readmorebutton2 > div}.</li>
+     *   <li>JS-click it → fires {@code toggleAddToSelect()} → Angular mounts
+     *       {@code div.contenteditable6} in the same {@code span.readmorebutton2}.</li>
+     *   <li>Focus the {@code contenteditable6}, type the value (each keystroke fires
+     *       {@code setTextFieldValue()}).</li>
+     *   <li>Press TAB to blur → fires {@code blurHandler()} which commits the value
+     *       and calls {@code isReadyForContinue()}. ENTER does NOT fire blur in
+     *       contenteditable divs — TAB is required.</li>
+     * </ol>
+     */
+    private void fillMindbodyCustomValue(String fieldName, String value) {
+        logger.info("[Mindbody] fillMindbodyCustomValue: field='{}', value='{}'", fieldName, value);
+
+        // ── Step 1: Find the menu-drop container with case-insensitive matching ──
+        WebElement container = findMenuDropByFieldName(fieldName);
+
+        // If not found, scroll the action panel to load any below-the-fold fields,
+        // then retry once.  Notes commonly appears at the bottom of the form, below
+        // the initial viewport.
+        if (container == null) {
+            logger.info("[Mindbody] '{}' not found on first lookup — scrolling action panel to surface lazy-rendered fields",
+                    fieldName);
+            scrollActionPanelToBottom();
+            waitShort(800);
+            container = findMenuDropByFieldName(fieldName);
+        }
+
+        if (container == null) {
+            throw new RuntimeException("menu-drop container not found for field: " + fieldName);
+        }
+
+        scrollIntoView(container);
+        waitShort(500);
+
+        // Use the ACTUAL name attribute from the container (e.g. "Notes" vs "notes")
+        // because Angular generates the id "editOptions[{actualName}]0" using the
+        // real field name from item.name — case-sensitive.
+        String actualName = safeAttr(container, "name", fieldName);
+        if (actualName.isEmpty()) {
+            try {
+                List<WebElement> inputs = container.findElements(By.cssSelector("input[name]"));
+                for (WebElement inp : inputs) {
+                    String n = safeAttr(inp, "name", "");
+                    if (!n.isEmpty()) { actualName = n; break; }
+                }
+            } catch (Exception ignored) {}
+        }
+        if (actualName.isEmpty()) actualName = fieldName;
+        logger.info("[Mindbody] Resolved actual field name: '{}' (input was '{}')", actualName, fieldName);
+
+        // ── Step 2: Find the "+ Add or Select" trigger (or contenteditable6 if   ──
+        //           already initialized).  Use querySelector via attribute equality
+        //           since the id contains '[' and ']' which CSS doesn't escape easily.
+        // Selenium returns a JS array as java.util.ArrayList, not Object[].
+        @SuppressWarnings("unchecked")
+        List<Object> triggerInfo = (List<Object>) ((JavascriptExecutor) driver).executeScript(
+            "var c = arguments[0];" +
+            "var fn = arguments[1];" +
+            "var targetId = 'editOptions[' + fn + ']0';" +
+            // Locate the exact field span by id (handles [] in id without CSS escape)
+            "var fieldSpan = null;" +
+            "var spans = c.querySelectorAll('span[id]');" +
+            "for (var i = 0; i < spans.length; i++) {" +
+            "  if (spans[i].id === targetId) { fieldSpan = spans[i]; break; }" +
+            "}" +
+            // Priority 1: contenteditable6 already mounted (already-filled / re-edit state)
+            "if (fieldSpan) {" +
+            "  var ceExisting = fieldSpan.querySelector('div.contenteditable6');" +
+            "  if (ceExisting) return [ceExisting, 'contenteditable6-existing'];" +
+            // Priority 2: '+ Add or Select' trigger (blank state, value == undefined)
+            //   - readmorebutton2: quantity/amount (numeric custom-value fields)
+            //   - readmorebutton1: cash_note (long-text custom-value fields)
+            "  var rb = fieldSpan.querySelector('span.readmorebutton1, span.readmorebutton2, span[class*=\"readmorebutton\"]');" +
+            "  if (rb) {" +
+            "    var inner = rb.querySelector(':scope > div');" +
+            "    if (inner) return [inner, 'add-or-select'];" +
+            "  }" +
+            "}" +
+            // Fallback 1: any readmorebutton (1 or 2) in the container
+            "var rb2 = c.querySelector('span.readmorebutton1, span.readmorebutton2, span[class*=\"readmorebutton\"]');" +
+            "if (rb2) {" +
+            "  var inner2 = rb2.querySelector(':scope > div');" +
+            "  if (inner2) return [inner2, 'add-or-select-fallback'];" +
+            "}" +
+            // Fallback 2: any contenteditable6 in container
+            "var ce = c.querySelector('div.contenteditable6');" +
+            "if (ce) return [ce, 'contenteditable6-fallback'];" +
+            "return null;",
+            container, actualName);
+
+        if (triggerInfo == null || triggerInfo.size() < 2) {
+            throw new RuntimeException(
+                "'+ Add or Select' / contenteditable6 trigger not found for field: " + fieldName);
+        }
+
+        WebElement triggerDiv = (WebElement) triggerInfo.get(0);
+        String triggerType   = (String) triggerInfo.get(1);
+        logger.info("[Mindbody] Trigger resolved [{}] for field '{}' — JS-clicking",
+                triggerType, fieldName);
+
+        scrollIntoView(triggerDiv);
+        waitShort(400);
+        jsClick(triggerDiv);
+        waitShort(800);  // give Angular time to swap the *ngIf branches
+
+        // ── Step 3: Find the contenteditable6 that Angular just mounted (or that ──
+        //           was already there).  Search scoped to the field span first to
+        //           avoid picking up a contenteditable6 from a different field.
+        WebElement customInput = (WebElement) ((JavascriptExecutor) driver).executeScript(
+            "var c = arguments[0];" +
+            "var fn = arguments[1];" +
+            "var targetId = 'editOptions[' + fn + ']0';" +
+            "var spans = c.querySelectorAll('span[id]');" +
+            "for (var i = 0; i < spans.length; i++) {" +
+            "  if (spans[i].id === targetId) {" +
+            "    var ce = spans[i].querySelector('div.contenteditable6');" +
+            "    if (ce) return ce;" +
+            "  }" +
+            "}" +
+            // Fallback: any contenteditable6 in the container
+            "return c.querySelector('div.contenteditable6');",
+            container, actualName);
+
+        if (customInput == null) {
+            // Last-resort global search (Angular may render in a portal)
+            customInput = (WebElement) ((JavascriptExecutor) driver).executeScript(
+                "var els = document.querySelectorAll('div.contenteditable6');" +
+                "for (var i = 0; i < els.length; i++) {" +
+                "  var r = els[i].getBoundingClientRect();" +
+                "  if (r.width > 0 && r.height > 0) return els[i];" +
+                "}" +
+                "return els.length > 0 ? els[0] : null;");
+        }
+
+        if (customInput == null) {
+            throw new RuntimeException(
+                "div.contenteditable6 not mounted after trigger click for field: " + fieldName);
+        }
+        logger.info("[Mindbody] contenteditable6 mounted inside editOptions[{}]0 — typing '{}'",
+                actualName, value);
+
+        // ── Step 4: Focus, clear, type ────────────────────────────────────────────
+        scrollIntoView(customInput);
+        waitShort(300);
+        try { customInput.click(); } catch (Exception e) { jsClick(customInput); }
+        waitShort(300);
+        ((JavascriptExecutor) driver).executeScript("arguments[0].innerText = '';", customInput);
+        waitShort(100);
+        customInput.sendKeys(value);
+        waitShort(400);
+
+        // ── Step 5: Commit via blur — TAB or click-outside (NOT Enter) ────────────
+        // Angular's (blur)="blurHandler(...)" fires only on actual blur events.
+        // ENTER in a contenteditable inserts a newline; TAB moves focus and fires blur.
+        try {
+            customInput.sendKeys(Keys.TAB);
+        } catch (Exception e) {
+            // Fallback: click somewhere else to force blur
+            ((JavascriptExecutor) driver).executeScript(
+                "arguments[0].dispatchEvent(new Event('blur', {bubbles:true}));" +
+                "document.body.click();", customInput);
+        }
+        waitShort(600);
+
+        logger.info("[Mindbody] ✓ Blur-committed: field='{}' (actual='{}') value='{}' (blurHandler fired)",
+                fieldName, actualName, value);
+        waitShort(300);
+    }
+
+    /**
+     * Finds the {@code div[id^='menu-drop']} container for a given field name with
+     * case-insensitive matching across name variations.  Tries (in order):
+     * exact name, lowercase, capitalized, uppercase, then walks every menu-drop and
+     * checks all input[name] children case-insensitively.
+     */
+    private WebElement findMenuDropByFieldName(String fieldName) {
+        // Build case variations
+        List<String> variants = new ArrayList<>();
+        variants.add(fieldName);
+        if (!fieldName.equals(fieldName.toLowerCase())) variants.add(fieldName.toLowerCase());
+        if (!fieldName.isEmpty()) {
+            String cap = Character.toUpperCase(fieldName.charAt(0))
+                    + (fieldName.length() > 1 ? fieldName.substring(1).toLowerCase() : "");
+            if (!variants.contains(cap)) variants.add(cap);
+        }
+        if (!fieldName.equals(fieldName.toUpperCase())) variants.add(fieldName.toUpperCase());
+
+        // Strategy A: [id^='menu-drop'][name='{variant}']
+        for (String v : variants) {
+            try {
+                List<WebElement> drops = driver.findElements(
+                        By.cssSelector("[id^='menu-drop'][name='" + v + "']"));
+                if (!drops.isEmpty()) {
+                    logger.info("[Mindbody] Container found by name='{}': id='{}'",
+                            v, safeAttr(drops.get(0), "id", "?"));
+                    return drops.get(0);
+                }
+            } catch (Exception ignored) {}
+        }
+
+        // Strategy B: case-insensitive scan of every menu-drop's name attribute + children
+        try {
+            String fnLower = fieldName.toLowerCase();
+            for (WebElement d : driver.findElements(By.cssSelector("[id^='menu-drop']"))) {
+                try {
+                    String dropName = safeAttr(d, "name", "").toLowerCase();
+                    if (dropName.equals(fnLower)) {
+                        logger.info("[Mindbody] Container found by case-insensitive name match: id='{}' actual-name='{}'",
+                                safeAttr(d, "id", "?"), safeAttr(d, "name", "?"));
+                        return d;
+                    }
+                    // Check children input[name=...] case-insensitively
+                    for (WebElement inp : d.findElements(By.cssSelector("input[name]"))) {
+                        String n = safeAttr(inp, "name", "").toLowerCase();
+                        if (n.equals(fnLower)) {
+                            logger.info("[Mindbody] Container found by case-insensitive input[name]: id='{}' actual-name='{}'",
+                                    safeAttr(d, "id", "?"), safeAttr(inp, "name", "?"));
+                            return d;
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+        } catch (Exception ignored) {}
+
+        return null;
+    }
+
+    /**
+     * Scrolls the action-setup panel to its bottom so any lazy-rendered fields
+     * (e.g. Notes, which often appears below the viewport fold) get mounted.
+     */
+    private void scrollActionPanelToBottom() {
+        try {
+            ((JavascriptExecutor) driver).executeScript(
+                "var PANEL_SELECTORS = [" +
+                "  '.right-panel', '.action-panel', '.panel-body'," +
+                "  '.setup-container', '.options-panel', '.scroll-container'," +
+                "  '[class*=\"right-panel\"]', '[class*=\"action-setup\"]'," +
+                "  '[class*=\"setup-panel\"]', '[class*=\"option-panel\"]'," +
+                "  '.choose-trigger-event'" +
+                "];" +
+                "var scrolled = false;" +
+                "for (var s = 0; s < PANEL_SELECTORS.length; s++) {" +
+                "  var els = document.querySelectorAll(PANEL_SELECTORS[s]);" +
+                "  for (var k = 0; k < els.length; k++) {" +
+                "    var el = els[k];" +
+                "    if (el && el.scrollHeight > el.clientHeight) {" +
+                "      el.scrollTop = el.scrollHeight;" +
+                "      scrolled = true;" +
+                "    }" +
+                "  }" +
+                "}" +
+                // Walk up from the last menu-drop to find its scroll container
+                "var drops = document.querySelectorAll('[id^=\"menu-drop\"]');" +
+                "if (drops.length > 0) {" +
+                "  var cur = drops[drops.length - 1].parentElement;" +
+                "  for (var i = 0; i < 12; i++) {" +
+                "    if (!cur) break;" +
+                "    var st = window.getComputedStyle(cur);" +
+                "    if (/auto|scroll/.test(st.overflow + st.overflowY) &&" +
+                "        cur.scrollHeight > cur.clientHeight) {" +
+                "      cur.scrollTop = cur.scrollHeight;" +
+                "      scrolled = true;" +
+                "      break;" +
+                "    }" +
+                "    cur = cur.parentElement;" +
+                "  }" +
+                "}" +
+                "return scrolled;");
+        } catch (Exception e) {
+            logger.debug("[Mindbody] scrollActionPanelToBottom failed: {}",
+                    e.getMessage().split("\n")[0]);
+        }
     }
 
     // ─── Activate Connect ───────────────────────────────────────────────────────
@@ -2052,11 +2059,14 @@ public class ConnectEditorPage {
             input.clear();
             input.sendKeys(appName);
             logger.info("Typed '{}' in search box.", appName);
+            waitShort(1500);  // wait for Angular filter to apply before querying results
 
             By filteredApp = By.xpath(
                 "//a[contains(@class,'ng-star-inserted') and .//p[normalize-space()='" + appName + "']] | " +
-                "//a[contains(@class,'ng-star-inserted') and .//*[contains(normalize-space(text()),'" + appName + "')]]");
-            WebElement appBtn = new WebDriverWait(driver, Duration.ofSeconds(15))
+                "//a[contains(@class,'ng-star-inserted') and .//*[contains(normalize-space(text()),'" + appName + "')]] | " +
+                "//*[contains(@class,'app-name') and normalize-space(.)='" + appName + "']/ancestor::a | " +
+                "//li[.//*[normalize-space(text())='" + appName + "']]/descendant-or-self::a");
+            WebElement appBtn = new WebDriverWait(driver, Duration.ofSeconds(20))
                     .until(ExpectedConditions.elementToBeClickable(filteredApp));
 
             logger.info("Clicking app card: {}", appName);

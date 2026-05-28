@@ -194,9 +194,18 @@ public final class SemanticPanelComponent {
         } else {
             p.append("<table style='width:100%;border-collapse:collapse;font-size:12px;'>");
             for (JSONObject c : rows) {
+                boolean isNew = Boolean.TRUE.equals(c.getOrDefault("isNew", false));
                 p.append("<tr>")
                  .append("<td style='padding:5px 0;border-bottom:1px solid #f1f5f9;color:#334155;'>")
-                 .append(esc(jsonStr(c, "title", ""))).append("</td>")
+                 .append(esc(jsonStr(c, "title", "")));
+                // First-occurrence badge: appeared in this run but NOT in the previous run's snapshot
+                if (isNew) {
+                    p.append("<span style='display:inline-flex;align-items:center;padding:1px 7px;"
+                           + "background:#dcfce7;color:#15803d;border-radius:9px;font-size:10px;"
+                           + "font-weight:700;margin-left:7px;vertical-align:middle;"
+                           + "white-space:nowrap;'>🆕 NEW</span>");
+                }
+                p.append("</td>")
                  .append("<td style='padding:5px 8px;border-bottom:1px solid #f1f5f9;"
                        + "text-align:right;font-variant-numeric:tabular-nums;color:#64748b;"
                        + "width:40px;'>×").append(jsonInt(c, "count", 0)).append("</td>")
