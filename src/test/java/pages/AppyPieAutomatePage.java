@@ -69,10 +69,43 @@ public class AppyPieAutomatePage {
     // Navigation
     // --------------------------------------------------
 
+    /**
+     * Known product domains for the Automate / Flozic platform.
+     *
+     * The product was rebranded from {@code appypieautomate.ai} to {@code flozic.ai};
+     * staging/marketing redirects still flow through {@code appypie.com}.  Any of
+     * these domains is a legitimate landing for the Automate home page — silently
+     * dropping flozic.ai treated a successful rebrand redirect as a test failure.
+     *
+     * Override via system property {@code -Dproduct.domains=domain1,domain2,…}
+     * for environment-specific runs (e.g. preview branches at custom subdomains).
+     */
+    private static final java.util.List<String> PRODUCT_DOMAINS;
+    static {
+        String override = System.getProperty("product.domains");
+        if (override != null && !override.isBlank()) {
+            PRODUCT_DOMAINS = java.util.Arrays.stream(override.split(","))
+                    .map(String::trim).filter(s -> !s.isEmpty())
+                    .map(String::toLowerCase).toList();
+        } else {
+            PRODUCT_DOMAINS = java.util.List.of(
+                    "appypieautomate",   // legacy primary
+                    "flozic.ai",          // current primary post-rebrand
+                    "appypie.com"        // marketing / shared SSO
+            );
+        }
+    }
+
     public boolean isOnAutomateDomain() {
-        return driver.getCurrentUrl()
-                .toLowerCase()
-                .contains("appypieautomate");
+        String url = driver.getCurrentUrl();
+        if (url == null) return false;
+        String lower = url.toLowerCase();
+        return PRODUCT_DOMAINS.stream().anyMatch(lower::contains);
+    }
+
+    /** Diagnostic — exposes the configured domain list for assertion error messages. */
+    public static java.util.List<String> productDomains() {
+        return PRODUCT_DOMAINS;
     }
 
     public boolean doAllTopNavLinksWork() {

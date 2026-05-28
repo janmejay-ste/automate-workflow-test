@@ -21,18 +21,32 @@ public class FailureArtifactManager {
     private static final Logger LOG = LoggerFactory.getLogger(FailureArtifactManager.class);
 
     /**
+     * Computes a timestamped folder name without creating the directory.
+     * Used by VideoRecorder so video and other artifacts share the exact same folder
+     * (pre-computed once, before both systems run) with no timestamp mismatch.
+     */
+    public static String computeFolderName(String testName) {
+        String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"));
+        return testName + "_" + ts;
+    }
+
+    /**
      * Captures Screenshot, DOM Snapshot, URL, and Console logs for debugging.
      * Returns the relative folder path (e.g. 'testMethod_20260228_131523_123') to be passed to analytics.
      */
     public static String capture(WebDriver driver, String testName) {
+        return capture(driver, testName, computeFolderName(testName));
+    }
+
+    /**
+     * Overload that accepts a pre-computed folder name so VideoRecorder and FailureArtifactManager
+     * write to the exact same directory without generating two different timestamps.
+     */
+    public static String capture(WebDriver driver, String testName, String precomputedFolderName) {
         if (driver == null) return null;
 
         try {
-            // Include milliseconds to avoid timestamp collisions on highly parallel runs
-            String timestamp = LocalDateTime.now()
-                    .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"));
-            
-            String folderName = testName + "_" + timestamp;
+            String folderName = precomputedFolderName;
             String relativeBaseDir = "reports/failures/" + folderName;
             Path baseDir = Paths.get(relativeBaseDir);
             Files.createDirectories(baseDir);
@@ -86,7 +100,7 @@ public class FailureArtifactManager {
             }
 
             LOG.info("Failure artifacts captured at: {}", relativeBaseDir);
-            
+
             // Return only the folder name so DashboardBuilder can build relative links cleanly
             return folderName;
 
@@ -96,3 +110,4 @@ public class FailureArtifactManager {
         }
     }
 }
+

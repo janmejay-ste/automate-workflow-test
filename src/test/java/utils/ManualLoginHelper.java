@@ -3,6 +3,8 @@ package utils;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.By;
 import org.openqa.selenium.TimeoutException;
+import org.openqa.selenium.WebElement;
+import org.openqa.selenium.Keys;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
 import pages.auth.AuthState;
@@ -39,7 +41,26 @@ public class ManualLoginHelper {
             return;
         }
 
-        logger.info("Login required. Waiting for manual intervention (Timeout: 3 minutes)...");
+        // Attempt automated login first (env vars take precedence).
+        String autoUser = System.getenv("AUTOMATION_LOGIN_USER");
+        String autoPass = System.getenv("AUTOMATION_LOGIN_PASS");
+        if (autoUser == null || autoPass == null) {
+            // Fallback to provided credentials when env vars are not set
+            autoUser = "janmejay@appypiellp.com";
+            autoPass = "Appypie@12345";
+        }
+
+        logger.info("Login required. Attempting automated login for user: {}", autoUser);
+        try {
+            tryAutomatedLogin(driver, autoUser, autoPass);
+            waitForPostLoginReady(driver);
+            logger.info("Post-login page loaded! Proceeding with automation.");
+            return;
+        } catch (Exception ex) {
+            logger.warn("Automated login attempt failed: {}. Falling back to manual wait.", ex.getMessage());
+        }
+
+        logger.info("Waiting for manual intervention (Timeout: 3 minutes)...");
         try {
             waitForManualLogin(driver);
             // After login, user might land on dashboard OR directly in editor
@@ -48,6 +69,79 @@ public class ManualLoginHelper {
         } catch (TimeoutException e) {
             logger.error("Timed out waiting for manual login or post-login readiness.");
             throw e;
+        }
+    }
+
+    private static void tryAutomatedLogin(WebDriver driver, String user, String pass) {
+        // Attempt to find common email and password input patterns present in the login page
+        WebDriverWait shortWait = new WebDriverWait(driver, Duration.ofSeconds(10));
+
+        // Locate email input: try by id/name/placeholder
+        By[] emailSelectors = new By[] {
+                By.id("testing"),
+                By.name("testing"),
+                By.cssSelector("input[placeholder*='Email']"),
+                By.cssSelector("input[placeholder*='Email Address']"),
+                By.cssSelector("input[type='text'].emailInput"),
+        };
+
+        WebElement emailEl = null;
+        for (By s : emailSelectors) {
+            try {
+                emailEl = shortWait.until(ExpectedConditions.elementToBeClickable(s));
+                if (emailEl != null) break;
+            } catch (Exception e) {
+                // ignore and try next
+            }
+        }
+
+        if (emailEl == null) throw new RuntimeException("Email input not found for automated login");
+        emailEl.clear();
+        emailEl.sendKeys(user);
+
+        // Locate password input
+        By[] passSelectors = new By[] {
+                By.id("password"),
+                By.cssSelector("input[type='password']"),
+        };
+        WebElement passEl = null;
+        for (By s : passSelectors) {
+            try {
+                passEl = shortWait.until(ExpectedConditions.elementToBeClickable(s));
+                if (passEl != null) break;
+            } catch (Exception e) {
+                // ignore
+            }
+        }
+        if (passEl == null) throw new RuntimeException("Password input not found for automated login");
+        passEl.clear();
+        passEl.sendKeys(pass);
+
+        // Try to submit: look for common submit buttons (.login-btns, button[type=submit], input[type=submit]), otherwise press ENTER
+        try {
+            WebElement submit = null;
+            By[] submitSelectors = new By[] {
+                    By.cssSelector("button[type='submit']"),
+                    By.cssSelector("button.login-btns"),
+                    By.cssSelector(".login-btns"),
+                    By.cssSelector("input[type='submit']"),
+            };
+            for (By s : submitSelectors) {
+                try {
+                    submit = driver.findElement(s);
+                    if (submit != null && submit.isDisplayed()) break;
+                } catch (Exception e) {
+                    submit = null;
+                }
+            }
+
+            if (submit != null && submit.isDisplayed()) {
+                submit.click();
+            } else {
+                passEl.sendKeys(Keys.ENTER);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to submit login form: " + e.getMessage());
         }
     }
 

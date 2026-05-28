@@ -1,0 +1,9 @@
+{
+  "_comment": "Declare upstream dependencies for each test. Format: 'TestClass.methodName' or 'TestClass' (class-level). Values are arrays of upstream IDs that must pass for this test to be meaningful. Start with what you know. Do NOT auto-generate this file.",
+
+  "_examples_remove_before_use": {
+    "AuthenticatedFlowTest": ["LoginTest"],
+    "CreateConnectWorkflowTest": ["LoginTest", "DashboardNavigationTest"],
+    "AppPairingTest": ["LoginTest", "CreateConnectWorkflowTest"]
+  }
+}
