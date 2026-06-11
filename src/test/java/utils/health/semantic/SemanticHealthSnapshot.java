@@ -128,9 +128,13 @@ public final class SemanticHealthSnapshot {
         int bFailed  = bt.countByState(BusinessOutcomeState.FAILED);
         int bAborted = bt.countByState(BusinessOutcomeState.ABORTED);
 
+        // Phase C3 — sample-size-aware suppression threshold relies on knowing the
+        // total test count. Pulled from testRecords; falls back to 0 when not yet
+        // populated (LayeredHealthScores then uses the legacy hard-3 threshold).
+        int totalTestCount = tracker.getTestRecords().size();
         LayeredHealthScores scores = LayeredHealthScores.compute(
                 clusters, unknown, valid, testFailuresProduct, testFailuresFramework,
-                bSuccess, bPartial, bFailed);
+                bSuccess, bPartial, bFailed, totalTestCount);
 
         return new SemanticHealthSnapshot(clusters, reliabilities, scores,
                 unknown, valid, byDomain,
@@ -191,6 +195,11 @@ public final class SemanticHealthSnapshot {
         java.util.Set<String> prevTitles = readPreviousClusterTitles();
 
         JSONArray clusterArr = new JSONArray();
+        // Phase A.6.2 — also accumulate amplification histogram for the top-level
+        // summary block. Orthogonal to count/severity — a NORMAL_REPEAT cluster
+        // of count=10 is materially different from a RETRY_STORM cluster of count=10
+        // (the latter is more likely one underlying issue).
+        Map<String, Integer> amplificationHistogram = new LinkedHashMap<>();
         for (ErrorCluster c : clusters) {
             JSONObject co = new JSONObject();
             co.put("title",         c.title);
@@ -203,9 +212,29 @@ public final class SemanticHealthSnapshot {
             // isNew=true when this cluster's title was not seen in the previous run.
             // First run: prevTitles is empty → all clusters are marked new.
             co.put("isNew",         !prevTitles.contains(c.title));
+            // Phase A.6.2 — per-cluster amplification classification + raw signal
+            // so downstream readers can re-classify if their thresholds differ.
+            String amp = c.amplification();
+            co.put("amplification",         amp);
+            co.put("distinctContextCount",  c.distinctContextCount);
+            amplificationHistogram.merge(amp, 1, Integer::sum);
             clusterArr.add(co);
         }
         out.put("clusters", clusterArr);
+
+        // Phase A.6.2 — top-level amplification summary so the dashboard can show
+        // "12 clusters: 3 RETRY_STORM, 4 EMBEDDED_REPEAT, 5 NORMAL_REPEAT" without
+        // re-iterating every cluster. Keys match complexity_budget.json's
+        // amplificationClassifications.values exactly.
+        JSONObject ampSummary = new JSONObject();
+        ampSummary.put("totalClusters", clusters.size());
+        JSONObject byType = new JSONObject();
+        for (String t : new String[] {"RETRY_STORM", "BOOT_LOOP",
+                                       "EMBEDDED_REPEAT", "NORMAL_REPEAT", "NONE"}) {
+            byType.put(t, amplificationHistogram.getOrDefault(t, 0));
+        }
+        ampSummary.put("byClassification", byType);
+        out.put("amplification", ampSummary);
 
         JSONArray relArr = new JSONArray();
         for (PhaseReliability pr : reliabilities) {

@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+import utils.config.UrlRegistry;
 import utils.health.HealthTracker;
 import utils.health.business.BusinessOutcomeTracker;
 import utils.health.business.BusinessTransaction;
@@ -65,14 +66,14 @@ public class HomepageExhaustiveTest extends BaseTest {
         // score reflects whether the homepage actually works for users, not
         // just whether the harness ran.
         BusinessTransaction tx = BusinessOutcomeTracker.get().begin(
-                "Homepage Navigation Health — appypieautomate.ai",
+                "Homepage Navigation Health — flozic.ai",
                 BusinessTransactionCategory.ONBOARDING)
             .require("Homepage loads without WebDriver error", "driver.get() returns")
             .require("URL framework discovers URLs from DOM",   "discoveredCount > 0")
             .require("No high/critical broken-link findings",   "all findings severity < HIGH");
 
         try {
-            driver.get("https://www.appypieautomate.ai/");
+            driver.get(UrlRegistry.MARKETING_BASE + "/");
             // Settle dynamic content briefly so iframes/images/scripts are in the DOM.
             Thread.sleep(5000);
             tx.observePass("Homepage loads without WebDriver error", driver.getCurrentUrl());
@@ -83,7 +84,7 @@ public class HomepageExhaustiveTest extends BaseTest {
             // utils.urlvalidator/ and applies uniformly here.  No ad-hoc URL
             // logic in this test file.
             UrlValidationRunner.ScanSummary summary =
-                    UrlValidationRunner.scan(driver, "Appypie Automate Homepage");
+                    UrlValidationRunner.scan(driver, "Flozic Homepage");
             LOG.info("URL scan summary: {}", summary);
 
             // Also count the raw interactive elements for diagnostic comparison

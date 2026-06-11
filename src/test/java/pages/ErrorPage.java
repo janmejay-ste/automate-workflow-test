@@ -5,6 +5,8 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 
 import java.time.Duration;
 
+import utils.config.UrlRegistry;
+
 /**
  * Page Object for error pages (404, 500, etc.)
  */
@@ -35,7 +37,7 @@ public class ErrorPage {
     // --------------------------------------------------
 
     public void navigateToInvalidUrl() {
-        driver.get("https://www.appypieautomate.ai/this-page-does-not-exist-12345");
+        driver.get(UrlRegistry.MARKETING_BASE + "/this-page-does-not-exist-12345");
         waitForPageLoad();
     }
 

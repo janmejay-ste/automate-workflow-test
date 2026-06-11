@@ -78,8 +78,28 @@ public final class LayeredHealthScores {
                                               int businessSuccess,
                                               int businessPartial,
                                               int businessFailed) {
+        return compute(clusters, unknownTimingCount, validTimingCount,
+                testFailuresProduct, testFailuresFramework,
+                businessSuccess, businessPartial, businessFailed, 0);
+    }
+
+    /**
+     * Phase C3 — 9-arg overload accepting {@code totalTestCount} for sample-size-aware
+     * LOW-cluster suppression. Legacy 8-arg bridges with {@code totalTestCount = 0}
+     * which falls back to the prior hard-3 threshold.
+     */
+    public static LayeredHealthScores compute(List<ErrorCluster> clusters,
+                                              int unknownTimingCount,
+                                              int validTimingCount,
+                                              int testFailuresProduct,
+                                              int testFailuresFramework,
+                                              int businessSuccess,
+                                              int businessPartial,
+                                              int businessFailed,
+                                              int totalTestCount) {
         LayeredHealthScores base = compute(clusters, unknownTimingCount, validTimingCount,
-                                           testFailuresProduct, testFailuresFramework);
+                                           testFailuresProduct, testFailuresFramework,
+                                           totalTestCount);
 
         int scorable = businessSuccess + businessPartial + businessFailed;
         int bizScore;
@@ -113,8 +133,36 @@ public final class LayeredHealthScores {
                                               int validTimingCount,
                                               int testFailuresProduct,
                                               int testFailuresFramework) {
+        return compute(clusters, unknownTimingCount, validTimingCount,
+                testFailuresProduct, testFailuresFramework, 0);
+    }
+
+    /**
+     * Phase C3 overload — accepts {@code totalTestCount} for sample-size-aware
+     * suppression of LOW-severity clusters. Legacy 5-arg overload bridges to
+     * this with {@code totalTestCount = 0}, which falls back to the prior
+     * hard threshold of 3.
+     */
+    public static LayeredHealthScores compute(List<ErrorCluster> clusters,
+                                              int unknownTimingCount,
+                                              int validTimingCount,
+                                              int testFailuresProduct,
+                                              int testFailuresFramework,
+                                              int totalTestCount) {
         int product   = 100;
         int framework = 100;
+
+        // Phase C3 — sample-size-aware LOW-cluster suppression.
+        // Default flag OFF: legacy "first 3 count" behavior preserved.
+        // Flag ON: threshold scales with sample size — max(3, ceil(N * 0.1)).
+        // In a 10-test run the threshold is 3 (same as legacy); in a 100-test run
+        // it becomes 10, so suppression kicks in only at proportionally meaningful
+        // counts rather than punishing every LOW occurrence after the third.
+        boolean sampleSizeAware = Boolean.parseBoolean(
+                System.getProperty("js.suppression.sampleSizeAware", "false"));
+        int lowThreshold = (sampleSizeAware && totalTestCount > 0)
+                ? Math.max(3, (int) Math.ceil(totalTestCount * 0.1))
+                : 3;
 
         if (clusters != null) {
             int lowCounted = 0;
@@ -123,7 +171,7 @@ public final class LayeredHealthScores {
                     case CRITICAL -> 20;
                     case HIGH     -> 10;
                     case MEDIUM   -> 5;
-                    case LOW      -> (lowCounted++ < 3) ? 1 : 0;
+                    case LOW      -> (lowCounted++ < lowThreshold) ? 1 : 0;
                     case INFO     -> 0;
                 };
                 switch (c.domain) {

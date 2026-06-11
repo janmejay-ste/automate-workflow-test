@@ -125,4 +125,36 @@ public final class HealthPolicy {
             return "POOR";
         return "CRITICAL";
     }
+
+    // ────────────────────────── Phase C1 — Diminishing-Returns Curve ──────────
+    /**
+     * Smoothly applies a cap to a raw penalty value without the discontinuity of
+     * {@code Math.min(raw, cap)}.
+     *
+     * <p>Default behaviour is the legacy hard cap (matches all historical runs).
+     * Set {@code -Dpenalty.curveCap=true} to switch to the asymptotic curve
+     * {@code f(x) = cap * (1 - exp(-x/cap))}. Values:</p>
+     * <pre>
+     *   f(0)        = 0
+     *   f(cap)      ≈ 0.632 × cap
+     *   f(2 × cap)  ≈ 0.865 × cap
+     *   f(∞)        → cap   (never reaches)
+     * </pre>
+     *
+     * <p>Useful where the existing cap collapses information: with a 20-point JS
+     * cap, runs with 25 and 200 errors score identically today; under the curve
+     * they score 12.85 and 19.87 — different enough to surface a problem.</p>
+     *
+     * <p>Behind a feature flag so trend comparison stays apples-to-apples until
+     * the flip is explicit. Annotate the deploy on the dashboard trend chart.</p>
+     */
+    public static double applyDiminishingReturns(double rawValue, double cap) {
+        if (rawValue <= 0 || cap <= 0) return 0.0;
+        boolean useCurve = Boolean.parseBoolean(
+                System.getProperty("penalty.curveCap", "false"));
+        if (!useCurve) {
+            return Math.min(rawValue, cap);
+        }
+        return cap * (1.0 - Math.exp(-rawValue / cap));
+    }
 }

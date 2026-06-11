@@ -12,6 +12,7 @@ import org.testng.Reporter;
 import org.testng.annotations.*;
 
 import utils.ConsoleLogFilter;
+import utils.config.UrlRegistry;
 import utils.DashboardBuilder;
 import utils.DashboardLauncher;
 import utils.FailureArtifactManager;
@@ -42,7 +43,9 @@ public abstract class BaseTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(BaseTest.class);
 
-    protected static final String BASE_URL = System.getProperty("base.url", "https://appypieautomate.ai");
+    // Rebrand migration (appypieautomate.ai → flozic.ai): default sourced from UrlRegistry.
+    // Override with -Dbase.url=... (legacy flag) OR -Dmarketing.baseUrl=... (preferred).
+    protected static final String BASE_URL = System.getProperty("base.url", UrlRegistry.MARKETING_BASE);
 
     // ---------- SUITE SETUP ----------
 
@@ -158,11 +161,20 @@ public abstract class BaseTest {
         boolean recordPassed = Boolean.parseBoolean(System.getProperty("recordPassedVideo", "true"));
 
         if (recorder != null) {
-            if (result.getStatus() == ITestResult.FAILURE) {
+            int status = result.getStatus();
+            // Treat SKIP the same as FAILURE for recording purposes.
+            // SKIP fires when @BeforeMethod throws (most often: driver crash from a
+            // prior iteration). The frames captured DURING the failing setUp are
+            // exactly the evidence an operator needs to triage — discarding them
+            // (the previous behaviour) was the silent-loss symptom that made
+            // recordings appear to "not work" for any test after a crash in the
+            // same Maven invocation. Single-class runs never hit SKIP cascades,
+            // which is why -Dtest=ClassName always produced a video.
+            if (status == ITestResult.FAILURE || status == ITestResult.SKIP) {
                 precomputedFailureFolder = FailureArtifactManager.computeFolderName(testMethod);
                 Path dir = Paths.get("reports/failures/" + precomputedFailureFolder);
                 recorder.stop(dir, true);
-            } else if (result.getStatus() == ITestResult.SUCCESS && recordPassed) {
+            } else if (status == ITestResult.SUCCESS && recordPassed) {
                 String folder = VideoRecorder.buildPassedFolder(testMethod);
                 Path dir = Paths.get("reports/recordings/" + folder);
                 recorder.stop(dir, true);
@@ -234,21 +246,30 @@ public abstract class BaseTest {
 
             String suiteName = System.getProperty("suiteFile", "manual");
             String env       = System.getProperty("environment", "local");
-            utils.HistoryJsonWriter.appendRun(utils.analytics.AnalyticsCollector.collect(), suiteName, env);
 
-            TrendExporter.updateTrend(score);
+            // Phase A.5.1: pre-compute gate decision so the snapshot we write
+            // below records the real enforcement outcome (not GATE_NOT_YET_RUN).
+            // evaluate() is no-throw — actual blocking happens in the finally below.
+            HealthGate.evaluate(tracker);
+
+            // Phase A2: All persisted run artifacts (snapshot, history, CSV trend,
+            // semantic-history JSONL) must land atomically. Concurrent surefire
+            // forks racing on these files would otherwise interleave appends and
+            // produce inconsistent state. The lock is a JVM-wide mutex so parallel
+            // test threads serialize their suite-end writes.
+            synchronized (HealthTracker.RUN_WRITE_LOCK) {
+                utils.HistoryJsonWriter.appendRun(utils.analytics.AnalyticsCollector.collect(), suiteName, env);
+                TrendExporter.updateTrend(score);            // writes snapshot + CSV row
+                utils.health.trend.SemanticTrendWriter.appendCurrentRun();
+            }
+
             tracker.printReport();
 
-            // Render dashboard / PDFs FIRST so they see the previous run as
-            // "previous" (history still holds runs 1..N-1 at this point).
-            // Generate executive + technical PDFs from the same semantic snapshot.
-            // Non-fatal — PDF failure never blocks the suite.
+            // Render dashboard / PDFs AFTER the transactional write block — these
+            // are read-only consumers of the persisted state.
             DashboardBuilder.write();
             utils.health.report.PdfReportBuilder.generateAll();
 
-            // Then append the current run to the trend file so future runs can
-            // compute their delta against this one.
-            utils.health.trend.SemanticTrendWriter.appendCurrentRun();
             LOG.info("Trend exported (score={})", score);
         } finally {
             DashboardLauncher.launchIfEnabled();

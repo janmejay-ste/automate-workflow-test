@@ -18,6 +18,7 @@ import utils.JsConsoleMonitor;
 import utils.ManualLoginHelper;
 import utils.NetworkMonitor;
 import utils.RetryClassifier;
+import utils.config.UrlRegistry;
 import utils.health.HealthTracker;
 import utils.health.business.BusinessOutcomeTracker;
 import utils.health.business.BusinessTransaction;
@@ -47,7 +48,7 @@ import java.util.stream.Collectors;
 public class AppPairingTest extends BaseTest {
 
     private static final Logger LOG = LoggerFactory.getLogger(AppPairingTest.class);
-    private static final String APP_DIRECTORY_URL = "https://www.appypieautomate.ai/integrate/app-directory";
+    private static final String APP_DIRECTORY_URL = UrlRegistry.MARKETING_BASE + "/integrate/app-directory";
     private static final int PAIRING_ITERATIONS = 6;
     private static final int VIRTUAL_SCROLL_ATTEMPTS = 8;
 

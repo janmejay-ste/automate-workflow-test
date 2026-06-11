@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "_comment": "Phase A.5.0 — Bounds on the scoring system's own complexity. See docs/scoring-system.md. Reviewed monthly. Additions require PR + 4-week observation justification.",
+
+  "evidenceChannels": {
+    "maximum": 8,
+    "current": 6,
+    "currentValues": ["testResults", "businessOutcomes", "jsErrors", "telemetry", "urlValidation", "semanticClusters"],
+    "additionsRequire": "PR review + 4-week observation justification"
+  },
+
+  "qualityEnum": {
+    "maximum": 8,
+    "finalSet": true,
+    "values": {
+      "STRONG":    { "signalValue": "HIGH",   "protected": false },
+      "PARTIAL":   { "signalValue": "MEDIUM", "protected": false },
+      "AMPLIFIED": { "signalValue": "HIGH",   "protected": false },
+      "MISSING":   { "signalValue": "HIGH",   "protected": true  },
+      "DEGRADED":  { "signalValue": "MEDIUM", "protected": false },
+      "DISABLED":  { "signalValue": "HIGH",   "protected": true  },
+      "UNKNOWN":   { "signalValue": "HIGH",   "protected": true  }
+    },
+    "retentionRule": "non-protected AND signalValue=LOW AND observed_30d=0 for 90 days -> candidate for removal"
+  },
+
+  "reasonEnum": {
+    "maximum": 8,
+    "finalSet": true,
+    "values": {
+      "INSTRUMENTATION_NOT_TRIGGERED": { "signalValue": "HIGH", "protected": false },
+      "COLLECTOR_FAILURE":             { "signalValue": "HIGH", "protected": true  },
+      "VALIDATOR_NOT_WIRED":           { "signalValue": "HIGH", "protected": false },
+      "CLASSIFIER_GAP":                { "signalValue": "HIGH", "protected": false },
+      "INTENTIONALLY_DISABLED":        { "signalValue": "HIGH", "protected": true  }
+    }
+  },
+
+  "amplificationClassifications": {
+    "maximum": 5,
+    "finalSet": true,
+    "values": {
+      "RETRY_STORM":     { "signalValue": "HIGH",   "protected": false },
+      "BOOT_LOOP":       { "signalValue": "HIGH",   "protected": false },
+      "EMBEDDED_REPEAT": { "signalValue": "MEDIUM", "protected": false },
+      "NORMAL_REPEAT":   { "signalValue": "MEDIUM", "protected": false }
+    }
+  },
+
+  "releaseDecisionCodes": {
+    "maximum": 16,
+    "current": 9,
+    "currentValues": [
+      "INSUFFICIENT_DATA", "SMOKE_FAIL", "CRITICAL_BUGS_OPEN",
+      "PRODUCT_HEALTH_CRITICAL", "CRITICAL_CLUSTER_LIMIT",
+      "SCORE_BELOW_POOR_MIN", "SCORE_BELOW_HEALTHY_MIN",
+      "REGRESSION_PASS_RATE_LOW", "LOW_CONFIDENCE"
+    ],
+    "additionsRequire": "explicit code in v8 plan + UI mapping"
+  },
+
+  "platformHealthCategories": {
+    "maximum": 4,
+    "current": 4,
+    "currentValues": ["snapshot_pipeline", "evidence_collection", "governance", "schema_evolution"],
+    "additionsRequire": "delete or merge existing category first (FIFO replacement)"
+  },
+
+  "deprecationPolicy": {
+    "rule": "any non-protected enum value not observed in production data for 90 consecutive days is candidate for removal",
+    "reviewCadence": "monthly",
+    "gracePeriod": "30 days deprecated -> 30 days removed-but-tolerated -> hard removal"
+  },
+
+  "governanceBudget": {
+    "prApprovalStepsMax":                3,
+    "enumChangeReviewDaysMax":           7,
+    "budgetViolationOverridesPerQuarter": 4,
+    "currentQuarterUsage": {
+      "overridesUsed":           0,
+      "approvalStepsObserved":   2,
+      "avgEnumReviewDays":       0
+    }
+  }
+}

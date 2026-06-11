@@ -28,7 +28,9 @@ public class AppyPieAutomatePage {
     private final WaitUtils waits;
 
     // ---- Locators ----
-    private final By headerTitle = By.xpath("//h1[contains(normalize-space(),'Automate')]");
+    // Broad heading check — matches any H1/H2 on the automate home page.
+    // Deliberately not tied to specific text so rebrand/copy changes don't break navigation tests.
+    private final By headerTitle = By.cssSelector("h1, h2");
 
     private final By topNavLinks = By.cssSelector("ul.navbar-nav a");
 
@@ -137,6 +139,7 @@ public class AppyPieAutomatePage {
                 }
 
                 driver.navigate().back();
+                waitForDocumentReady();
                 waits.waitForVisible(headerTitle);
 
             } catch (ElementNotInteractableException e) {

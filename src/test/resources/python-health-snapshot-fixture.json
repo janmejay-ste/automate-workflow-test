@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 3,
+  "source": "python",
+  "timestamp": 1780666964859,
+  "startedAt": 1780666930611,
+  "tests": [
+    {
+      "category": "SMOKE",
+      "login": "Guest",
+      "feature": "Marketing > Homepage",
+      "class": "TestHomepageSmoke",
+      "method": "test_page_reaches_loaded_state",
+      "status": "PASS",
+      "duration": 57,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SMOKE",
+      "login": "Guest",
+      "feature": "Marketing > Homepage",
+      "class": "TestHomepageSmoke",
+      "method": "test_no_fatal_console_errors_during_load",
+      "status": "PASS",
+      "duration": 505,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SMOKE",
+      "login": "Guest",
+      "feature": "Marketing > Homepage",
+      "class": "TestHomepageSmoke",
+      "method": "test_title_contains_brand_name",
+      "status": "PASS",
+      "duration": 11,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SMOKE",
+      "login": "Guest",
+      "feature": "Marketing > Homepage",
+      "class": "TestHomepageSmoke",
+      "method": "test_hero_cta_is_visible",
+      "status": "PASS",
+      "duration": 46,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SMOKE",
+      "login": "Guest",
+      "feature": "Marketing > Homepage",
+      "class": "TestHomepageSmoke",
+      "method": "test_primary_nav_links_all_present",
+      "status": "PASS",
+      "duration": 77,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SMOKE",
+      "login": "Guest",
+      "feature": "Marketing > Homepage",
+      "class": "TestHomepageSmoke",
+      "method": "test_email_us_modal_present_in_dom",
+      "status": "PASS",
+      "duration": 28,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SMOKE",
+      "login": "Guest",
+      "feature": "Marketing > Pricing",
+      "class": "TestPricingSmoke",
+      "method": "test_page_reaches_loaded_state",
+      "status": "PASS",
+      "duration": 55,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SMOKE",
+      "login": "Guest",
+      "feature": "Marketing > Pricing",
+      "class": "TestPricingSmoke",
+      "method": "test_no_fatal_console_errors_during_load",
+      "status": "PASS",
+      "duration": 1885,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SMOKE",
+      "login": "Guest",
+      "feature": "Marketing > Pricing",
+      "class": "TestPricingSmoke",
+      "method": "test_title_contains_brand_name",
+      "status": "PASS",
+      "duration": 6,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SMOKE",
+      "login": "Guest",
+      "feature": "Marketing > Pricing",
+      "class": "TestPricingSmoke",
+      "method": "test_at_least_minimum_plan_cards_visible",
+      "status": "PASS",
+      "duration": 161,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SMOKE",
+      "login": "Guest",
+      "feature": "Marketing > Pricing",
+      "class": "TestPricingSmoke",
+      "method": "test_at_least_one_plan_cta_visible",
+      "status": "PASS",
+      "duration": 96,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SMOKE",
+      "login": "Guest",
+      "feature": "Marketing > Pricing",
+      "class": "TestPricingSmoke",
+      "method": "test_buy_ctas_present_for_paid_tiers",
+      "status": "PASS",
+      "duration": 106,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SMOKE",
+      "login": "Guest",
+      "feature": "Marketing > Pricing",
+      "class": "TestPricingSmoke",
+      "method": "test_enterprise_contact_cta_present",
+      "status": "PASS",
+      "duration": 57,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SMOKE",
+      "login": "Guest",
+      "feature": "Marketing > Pricing",
+      "class": "TestPricingSmoke",
+      "method": "test_view_all_features_buttons_present",
+      "status": "PASS",
+      "duration": 22,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SMOKE",
+      "login": "Guest",
+      "feature": "Marketing > Pricing",
+      "class": "TestPricingSmoke",
+      "method": "test_billing_content_blocks_both_exist",
+      "status": "PASS",
+      "duration": 23,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SMOKE",
+      "login": "Guest",
+      "feature": "Marketing > Pricing",
+      "class": "TestPricingSmoke",
+      "method": "test_primary_nav_links_all_present",
+      "status": "PASS",
+      "duration": 86,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SANITY",
+      "login": "Guest",
+      "feature": "Authentication",
+      "class": "TestLoginEntry",
+      "method": "test_login_flow_starts_correctly",
+      "status": "PASS",
+      "duration": 1035,
+      "cohort": "baseline-smoke"
+    },
+    {
+      "category": "SANITY",
+      "login": "Guest",
+      "feature": "Authentication",
+      "class": "TestSignupEntry",
+      "method": "test_signup_flow_starts_correctly",
+      "status": "PASS",
+      "duration": 582,
+      "cohort": "baseline-smoke"
+    }
+  ],
+  "scoreContributors": {
+    "testFailures": {
+      "source": "testFailures",
+      "items": []
+    },
+    "jsErrors": {
+      "source": "jsErrors",
+      "items": []
+    },
+    "fallbacks": {
+      "source": "fallbacks",
+      "items": []
+    },
+    "totalRaw": 0.0,
+    "totalApplied": 0.0,
+    "totalSuppressed": 0.0
+  }
+}

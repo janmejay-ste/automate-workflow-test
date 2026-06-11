@@ -9,6 +9,7 @@ import org.testng.Assert;
 import org.testng.annotations.BeforeMethod;
 import org.testng.annotations.Test;
 import pages.ErrorPage;
+import utils.config.UrlRegistry;
 import utils.health.HealthTracker;
 
 /**
@@ -133,7 +134,7 @@ public class ErrorHandlingTest extends BaseTest {
 
     @Test(groups = {"regression"}, priority = 5)
     public void verifyGracefulHandlingOfSpecialCharacters() {
-        String invalidUrl = "https://www.appypieautomate.ai/<script>alert(1)</script>";
+        String invalidUrl = UrlRegistry.MARKETING_BASE + "/<script>alert(1)</script>";
 
         try {
             errorPage.navigateToUrl(invalidUrl);
@@ -154,7 +155,7 @@ public class ErrorHandlingTest extends BaseTest {
     @Test(groups = {"regression"}, priority = 6)
     public void verifyVeryLongUrlHandling() {
         // Create a very long URL path
-        StringBuilder longPath = new StringBuilder("https://www.appypieautomate.ai/");
+        StringBuilder longPath = new StringBuilder(UrlRegistry.MARKETING_BASE + "/");
         for (int i = 0; i < 100; i++) {
             longPath.append("verylongpath");
         }

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
+<!--
+  E2E suite — runs every @Test method in the `testing` package and its
+  sub-packages, with no group filter. Use this when you want
+  comprehensive coverage in a single command.
+
+  If you only want the long-running browser-driven workflow tests, run
+  -Dgroups=full alongside, or use sanity-testng.xml for the fixture-only
+  fast suite.
+-->
+<suite name="E2ETestSuite" verbose="2" parallel="none">
+  <listeners>
+    <listener class-name="base.TestNGInitListener"/>
+    <listener class-name="utils.CustomHtmlReporter"/>
+  </listeners>
+  <test name="E2ETests" preserve-order="true">
+    <!-- No <groups> filter: every @Test in the testing package runs. -->
+    <packages>
+      <package name="testing"/>
+    </packages>
+  </test>
+</suite>

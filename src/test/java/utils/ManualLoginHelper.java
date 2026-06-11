@@ -76,6 +76,16 @@ public class ManualLoginHelper {
         // Attempt to find common email and password input patterns present in the login page
         WebDriverWait shortWait = new WebDriverWait(driver, Duration.ofSeconds(10));
 
+        // Some entry points (notably the GoHighLevel prompt-builder
+        // "Build my GoHighLevel workflow" → /register redirect) land on an
+        // Angular signup form that has a "Login" toggle link to switch panes.
+        // Without the toggle click, the email/password inputs we look for below
+        // are still the SIGNUP inputs — credentials get submitted to the wrong
+        // endpoint. Clicking the toggle (when it's present) switches the form
+        // to the login pane; on entry points that already default to login,
+        // the toggle isn't rendered and this step is a silent no-op.
+        switchToLoginPaneIfSignupShown(driver);
+
         // Locate email input: try by id/name/placeholder
         By[] emailSelectors = new By[] {
                 By.id("testing"),
@@ -143,6 +153,66 @@ public class ManualLoginHelper {
         } catch (Exception e) {
             throw new RuntimeException("Failed to submit login form: " + e.getMessage());
         }
+    }
+
+    /**
+     * If the auth page is rendering the signup pane instead of the login pane
+     * (some entry points such as the GoHighLevel prompt-builder "Build my workflow"
+     * redirect default to signup), clicks the "Login" toggle link to switch to the
+     * login pane. Silent no-op when the toggle is not present or not visible — most
+     * entry points already default to login.
+     *
+     * <p>Selector strategy:</p>
+     * <ol>
+     *   <li>Exact match: {@code a.cursor-pointer-new} with normalised text "Login"
+     *       (the Angular template class on the toggle link).</li>
+     *   <li>Loose fallback: any {@code <a>} on the page whose text is "Login"
+     *       (covers minor class renames without breaking the test).</li>
+     * </ol>
+     *
+     * <p>After clicking, waits up to 3 s for an email input to appear, so the
+     * caller's locator chain has the right form rendered.</p>
+     */
+    private static void switchToLoginPaneIfSignupShown(WebDriver driver) {
+        java.util.List<By> toggleSelectors = java.util.List.of(
+                By.xpath("//a[contains(@class,'cursor-pointer-new') and normalize-space(.)='Login']"),
+                By.xpath("//a[normalize-space(.)='Login' and not(contains(@href,'/'))]")
+        );
+        for (By sel : toggleSelectors) {
+            try {
+                java.util.List<WebElement> found = driver.findElements(sel);
+                for (WebElement el : found) {
+                    if (!el.isDisplayed()) continue;
+                    try { el.click(); }
+                    catch (Exception ex) {
+                        ((org.openqa.selenium.JavascriptExecutor) driver)
+                                .executeScript("arguments[0].click();", el);
+                    }
+                    logger.info("Auth pane: clicked 'Login' toggle to switch from signup form");
+                    // Give the Angular form-swap a moment, then verify an email input is present
+                    try {
+                        new WebDriverWait(driver, Duration.ofSeconds(3)).until(d -> {
+                            for (By emailSel : new By[] {
+                                    By.id("testing"),
+                                    By.cssSelector("input[placeholder*='Email']"),
+                                    By.cssSelector("input.emailInput")
+                            }) {
+                                java.util.List<WebElement> e = d.findElements(emailSel);
+                                if (!e.isEmpty() && e.get(0).isDisplayed()) return true;
+                            }
+                            return false;
+                        });
+                    } catch (TimeoutException te) {
+                        // Pane swap didn't surface an email input in 3 s — let the caller's
+                        // own retry loop deal with it. We've done our part.
+                        logger.warn("Auth pane: clicked Login toggle but email input did not appear within 3s");
+                    }
+                    return;
+                }
+            } catch (Exception ignored) {}
+        }
+        // No toggle present — the page is already on the login pane, or the
+        // signup-only entry point this method targets isn't in play. Nothing to do.
     }
 
     public static void waitForManualLogin(WebDriver driver) {

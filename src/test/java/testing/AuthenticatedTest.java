@@ -15,6 +15,7 @@ import pages.ConnectEditorPage;
 import pages.DashboardPage;
 import pages.WaitUtils;
 import utils.ManualLoginHelper;
+import utils.config.UrlRegistry;
 import utils.health.HealthTracker;
 
 import java.time.Duration;
@@ -115,7 +116,7 @@ public class AuthenticatedTest extends BaseTest {
             boolean validRedirect =
                     postLogoutUrl.contains("appypie.com/login") ||
                     postLogoutUrl.contains("accounts.appypie") ||
-                    postLogoutUrl.contains("appypieautomate.ai");
+                    UrlRegistry.isOwnedMarketingHost(postLogoutUrl);
             if (validRedirect) {
                 tx.observePass("Logout redirected to known auth domain", postLogoutUrl);
             } else {
@@ -147,7 +148,7 @@ public class AuthenticatedTest extends BaseTest {
                 LOG.info("Recovery logout complete");
             } catch (Exception logoutEx) {
                 LOG.error("Recovery logout also failed: {}", logoutEx.getMessage());
-                driver.get("https://www.appypieautomate.ai");
+                driver.get(UrlRegistry.MARKETING_BASE);
             }
 
             Assert.fail("Sanity Journey failed: " + e.getMessage());

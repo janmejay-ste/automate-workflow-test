@@ -8,6 +8,8 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 
+import utils.config.UrlRegistry;
+
 public class DashboardPage {
     private static final Logger logger = LoggerFactory.getLogger(DashboardPage.class);
     private final WebDriver driver;
@@ -100,7 +102,7 @@ public class DashboardPage {
             new org.openqa.selenium.support.ui.WebDriverWait(driver, Duration.ofSeconds(15))
                     .until(d -> {
                         String url = d.getCurrentUrl().toLowerCase();
-                        return url.contains("appypieautomate.ai") || url.contains("appypie.com/login");
+                        return UrlRegistry.isOwnedMarketingHost(url) || url.contains("appypie.com/login");
                     });
         } catch (Exception e) {
             logger.warn("Redirect wait timed out. Current URL: {}", driver.getCurrentUrl());

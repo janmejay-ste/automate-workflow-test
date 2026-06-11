@@ -80,7 +80,7 @@ automate-workflow-test/
 ├── sanity-testng.xml              # Sanity suite
 ├── smoke-testng.xml               # Smoke suite
 ├── regression-testng.xml          # Regression suite
-├── full-testng.xml                # Full suite
+├── e2e-testng.xml                 # E2E suite — runs every @Test in testing/ (no group filter)
 └── pom.xml                        # Maven build config (JDK 21)
 ```
 
@@ -105,8 +105,8 @@ mvn test -Dtest=AppPairingTest -Dheadless=true
 # Run with a specific suite file
 mvn test -DsuiteFile=sanity-testng.xml
 
-# Run full suite
-mvn test -DsuiteFile=full-testng.xml
+# Run e2e suite — runs every test in the testing package (no group filter)
+mvn test -DsuiteFile=e2e-testng.xml
 ```
 
 ### View the Health Dashboard

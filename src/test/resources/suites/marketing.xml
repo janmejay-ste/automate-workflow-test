@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
+<!--
+  Marketing-pages test suite.
+
+  Runs every test under testing.marketing.* — smoke, functional, integrity, seo.
+  Filter by group at the Maven command line:
+
+    mvn test -DsuiteFile=src/test/resources/suites/marketing.xml
+        runs all marketing tests across all categories
+
+    mvn test -DsuiteFile=src/test/resources/suites/marketing.xml -Dgroups=smoke
+        runs marketing smoke only (fastest path; < 30s per page)
+
+    mvn test -Dtest=HomepageSmokeTest
+        runs a single test class (existing pattern)
+
+  Phase P1 of the marketing coverage rollout. P2..P10 add more classes
+  under the same packages; this suite file does not need updates.
+-->
+<suite name="MarketingTests" verbose="2" parallel="none">
+
+    <listeners>
+        <listener class-name="base.TestNGInitListener"/>
+        <listener class-name="utils.CustomHtmlReporter"/>
+    </listeners>
+
+    <test name="Marketing - All" preserve-order="true">
+        <packages>
+            <package name="testing.marketing.smoke"/>
+            <package name="testing.marketing.functional"/>
+            <package name="testing.marketing.integrity"/>
+            <package name="testing.marketing.seo"/>
+        </packages>
+    </test>
+
+</suite>

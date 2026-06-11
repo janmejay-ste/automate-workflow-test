@@ -7,11 +7,13 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import utils.config.UrlRegistry;
+
 public class ConnectTopNavigation {
 
     private static final Logger LOG = LoggerFactory.getLogger(ConnectTopNavigation.class);
 
-    private static final String BASE_URL = "https://www.appypieautomate.ai";
+    private static final String BASE_URL = UrlRegistry.MARKETING_BASE;
 
     private final WebDriver driver;
     private final WaitUtils waits;
@@ -29,8 +31,12 @@ public class ConnectTopNavigation {
     private final By aiConnects = By.cssSelector("a[title='AI Agents']");
     private final By mcpServer = By.cssSelector("a[title='MCP Server']");
     private final By pricing = By.cssSelector("a[title='Pricing']");
-    private final By blog = By.cssSelector("a[title='Appy Pie Automate Blog']");
-    private final By contactSales = By.cssSelector("a[title='Contact Sales']");
+    // Rebrand-resilient: structural selector survives "Appy Pie Automate Blog" -> "Flozic Blog" rename.
+    private final By blog = By.cssSelector("a[href='/blog/'], a[href$='/blog/']");
+    private final By contactSales = By.cssSelector(
+            "a[title='Contact Sales'], a[title='contact sales'], " +
+            "a[href*='calendly'], a[href*='contact-sales'], " +
+            "a[href*='contact_sales'], nav a[class*='contact']");
     private final By signup = By.cssSelector("a[title='Sign Up']");
     private final By login = By.cssSelector("a[title='log in']");
 
@@ -56,7 +62,7 @@ public class ConnectTopNavigation {
 
         // Only restore main page if we're not already on the automate domain
         String initialUrl = driver.getCurrentUrl();
-        if (!initialUrl.contains("appypieautomate.ai") && !initialUrl.contains("appypie.com")) {
+        if (!UrlRegistry.isOwnedMarketingHost(initialUrl) && !initialUrl.contains("appypie.com")) {
             restoreMainPage();
         }
 

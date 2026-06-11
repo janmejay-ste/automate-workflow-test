@@ -40,7 +40,8 @@ public final class JsConsoleMonitor {
 
     // ── First-party domains whose errors are promoted to FAIL ─────────────────
     private static final List<String> FIRST_PARTY_DOMAINS = List.of(
-            "appypieautomate.ai",
+            "appypieautomate.ai",   // legacy marketing host (rebrand transition; keep until 30d post-cutover)
+            "flozic.ai",            // current marketing host (post-rebrand)
             "appypie.com",
             "connectcloud.appypie.com",
             "accounts.appypie.com"

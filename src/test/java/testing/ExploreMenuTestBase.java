@@ -14,6 +14,7 @@ import pages.DashboardPage;
 import utils.ApplicationReadiness;
 import utils.ManualLoginHelper;
 import utils.NetworkMonitor;
+import utils.config.UrlRegistry;
 import utils.health.HealthTracker;
 
 import java.time.Duration;
@@ -40,7 +41,7 @@ abstract class ExploreMenuTestBase extends BaseTest {
 
     static final Logger LOG = LoggerFactory.getLogger(ExploreMenuTestBase.class);
 
-    static final String HOME_URL  = "https://www.appypieautomate.ai";
+    static final String HOME_URL  = UrlRegistry.MARKETING_BASE;
     static final int    MAX_LINKS = 10;
 
     // ── Selectors ────────────────────────────────────────────────────────────
@@ -72,6 +73,23 @@ abstract class ExploreMenuTestBase extends BaseTest {
             By.xpath("//a[contains(text(),'Automate') and contains(@href,'accounts.appypie')]"),
             By.cssSelector("a[href*='accounts.appypie.com/register']")
     );
+
+    // ── Prompt-builder UI (currently shipped on GoHighLevel integration pages) ───
+    // The page-level Automate CTA on /integrate/apps/gohighlevel/integrations has been
+    // replaced by a chatbot prompt-builder: a textarea (#ghl-prompt) + submit button
+    // (#ghl-submit). When this UI is present, the test must fill the textarea and
+    // click the submit button — clicking any other "Automate" lookalike falls back
+    // to the page-header signup link, which lands at /connects (dashboard), never
+    // /customeditor, and fails the editor-gate assertion.
+    //
+    // If additional apps adopt the same pattern (different prefix, same suffix), add
+    // their selectors here. The element-id suffix is the stable signal.
+    static final By PROMPT_BUILDER_TEXTAREA = By.cssSelector(
+            "textarea#ghl-prompt, textarea[id$='-prompt'][maxlength]");
+    static final By PROMPT_BUILDER_SUBMIT   = By.cssSelector(
+            "button#ghl-submit, button.pb-btn[id$='-submit']");
+    static final String PROMPT_BUILDER_DEFAULT_FALLBACK =
+            "Automation smoke test: create the workflow without user customisation.";
 
     // Family picker grid — present when a page groups multiple apps (e.g. Microsoft Suite, Amazon Suite)
     // Structure: <div class="app-family-grid"><a class="app-family-card" href="#sectionId">…</a></div>
@@ -294,10 +312,20 @@ abstract class ExploreMenuTestBase extends BaseTest {
             return;
         }
 
-        // Normal flow — click the Automate button
-        clickAutomateButton(label);
-        sleep(800);
-        LOG.info("[{}] Clicked Automate button", label);
+        // Phase: GoHighLevel prompt-builder branch — flozic.ai shipped a chatbot
+        // UI on GHL integration pages that replaces the page-level Automate CTA.
+        // When the textarea + submit pair is present, we use them; otherwise we
+        // fall through to the legacy Automate-button flow that every other app
+        // still uses. Detection is per-page, not per-app-name, so other apps that
+        // adopt the same prompt-builder pattern automatically work.
+        if (tryClickPromptBuilder(label)) {
+            sleep(800);
+            LOG.info("[{}] Clicked prompt-builder submit", label);
+        } else {
+            clickAutomateButton(label);
+            sleep(800);
+            LOG.info("[{}] Clicked Automate button", label);
+        }
         routeAfterAutomateClick(label, result);
     }
 
@@ -564,6 +592,121 @@ abstract class ExploreMenuTestBase extends BaseTest {
         Assert.fail("[" + label + "] a.bannerInnerBtn not found — integration page may be broken");
     }
 
+    /**
+     * Detects the prompt-builder UI (currently shipped on GoHighLevel integration
+     * pages) and, when present, fills the textarea and clicks the submit button.
+     *
+     * <p>Returns {@code true} when the prompt-builder flow was used (caller should
+     * skip {@link #clickAutomateButton(String)}). Returns {@code false} when no
+     * prompt-builder is on the page (caller falls through to the legacy Automate
+     * button flow).</p>
+     *
+     * <p>The textarea's {@code placeholder} attribute is used as the prompt text
+     * when present — it's the product team's own suggested phrasing and matches
+     * the conversion the chatbot was built to capture. Falls back to a generic
+     * "automation smoke" string only when placeholder is empty.</p>
+     */
+    boolean tryClickPromptBuilder(String label) {
+        List<WebElement> textareas = driver.findElements(PROMPT_BUILDER_TEXTAREA);
+        if (textareas.isEmpty()) return false;
+        WebElement textarea = textareas.get(0);
+        if (!textarea.isDisplayed()) return false;
+
+        // Probe for the submit button BEFORE typing, so we can bail cleanly if the
+        // page only shipped half the prompt-builder UI. The reference we capture
+        // here is just for the probe — we re-find a fresh reference after typing
+        // because Angular re-renders the form (and invalidates element refs) on
+        // textarea input events.
+        List<WebElement> submitsProbe = driver.findElements(PROMPT_BUILDER_SUBMIT);
+        if (submitsProbe.isEmpty() || !submitsProbe.get(0).isDisplayed()) {
+            LOG.warn("[{}] Prompt-builder textarea found but submit button missing — "
+                   + "falling back to Automate flow", label);
+            return false;
+        }
+        // Capture submit's id NOW for the log line (won't survive Angular re-render).
+        String submitIdForLog;
+        try { submitIdForLog = submitsProbe.get(0).getAttribute("id"); }
+        catch (Exception ignored) { submitIdForLog = "ghl-submit"; }
+
+        // Use the textarea's placeholder as the prompt — it's the live page's own
+        // suggested wording, so it stays aligned if the product team tunes copy.
+        String prompt = textarea.getAttribute("placeholder");
+        if (prompt == null || prompt.isBlank()) {
+            prompt = PROMPT_BUILDER_DEFAULT_FALLBACK;
+        }
+        int promptLen = prompt.length();
+
+        // Scroll, focus, fill — keystroke-driven so any onChange/onInput listeners fire.
+        ((JavascriptExecutor) driver).executeScript(
+                "arguments[0].scrollIntoView({block:'center',behavior:'smooth'});", textarea);
+        sleep(300);
+        try {
+            textarea.click();
+            textarea.clear();
+            textarea.sendKeys(prompt);
+            LOG.info("[{}] Prompt-builder: typed {} chars into textarea", label, promptLen);
+        } catch (Exception e) {
+            // Some textarea implementations refuse .click()/.clear() — set value via JS as fallback
+            ((JavascriptExecutor) driver).executeScript(
+                    "arguments[0].value = arguments[1];"
+                  + "arguments[0].dispatchEvent(new Event('input',  {bubbles:true}));"
+                  + "arguments[0].dispatchEvent(new Event('change', {bubbles:true}));",
+                    textarea, prompt);
+            LOG.info("[{}] Prompt-builder: filled textarea via JS fallback ({} chars)",
+                    label, promptLen);
+        }
+
+        // CRITICAL: Angular re-renders the form after `sendKeys` (toggles the
+        // submit button's disabled state based on input length, may swap nodes).
+        // Any submit-button reference captured before typing is now stale. The
+        // empirical failure mode was a StaleElementReferenceException on the
+        // post-click `submit.getAttribute("id")` log call — fix is to re-find
+        // a fresh reference each click attempt, with a small retry budget for
+        // pages that re-render more than once.
+        sleep(600);  // settle window for Angular's input-debounced re-render
+
+        Exception lastErr = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                List<WebElement> freshSubmits = driver.findElements(PROMPT_BUILDER_SUBMIT);
+                if (freshSubmits.isEmpty()) {
+                    throw new org.openqa.selenium.NoSuchElementException(
+                            "submit button vanished after typing (attempt " + attempt + ")");
+                }
+                WebElement freshSubmit = freshSubmits.get(0);
+                if (!freshSubmit.isDisplayed()) {
+                    throw new org.openqa.selenium.ElementNotInteractableException(
+                            "submit button not displayed (attempt " + attempt + ")");
+                }
+                // Some Angular forms keep the submit button disabled until the
+                // input passes their validation — JS-click bypasses the .disabled
+                // guard. Try native click first, fall back to JS.
+                ((JavascriptExecutor) driver).executeScript(
+                        "arguments[0].scrollIntoView({block:'center',behavior:'smooth'});", freshSubmit);
+                sleep(200);
+                try {
+                    freshSubmit.click();
+                } catch (Exception clickEx) {
+                    ((JavascriptExecutor) driver).executeScript(
+                            "arguments[0].click();", freshSubmit);
+                }
+                LOG.info("[{}] Prompt-builder: clicked #{} on attempt {} — 'Build my … workflow'",
+                        label, submitIdForLog, attempt);
+                return true;
+            } catch (Exception e) {
+                lastErr = e;
+                LOG.warn("[{}] Prompt-builder: submit attempt {}/3 failed ({}); refinding",
+                        label, attempt, e.getMessage().split("\n")[0]);
+                sleep(400);  // back off, let Angular settle, then re-find
+            }
+        }
+        // Three attempts couldn't land a click — surface as a hard failure so the
+        // outer try/catch in runSection produces a meaningful test report (rather
+        // than a misleading "fell back to Automate flow" log line).
+        throw new RuntimeException("Prompt-builder submit click failed after 3 retries: "
+                + (lastErr != null ? lastErr.getMessage().split("\n")[0] : "unknown"), lastErr);
+    }
+
     // ── Login + editor cycle ──────────────────────────────────────────────────
 
     /**
@@ -610,8 +753,12 @@ abstract class ExploreMenuTestBase extends BaseTest {
                 Assert.fail("[" + label + "] cta-btn not found in section #" + anchor + " after login");
             }
         } else {
-            // Normal integration page — click bannerInnerBtn
-            clickAutomateButton(label);
+            // Normal integration page — prompt-builder (GHL etc.) takes priority,
+            // bannerInnerBtn is the fallback. After login the page is reloaded fresh,
+            // so the prompt-builder UI is present again and must be re-used.
+            if (!tryClickPromptBuilder(label)) {
+                clickAutomateButton(label);
+            }
         }
 
         // Wait up to 30 s for the post-click redirect chain to settle.

@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "_comment": "Phase B1 — Coverage catalog: every business outcome the harness claims to test. See docs/scoring-system-roadmap.md §1 B1. The catalog is the single source of truth that connects (test method) → (outcome id) → (verifier) → (severity for scoring weight). Additions require PR review. Removals require either retiring the test or migrating the outcome to a new test.",
+
+  "_severityValues": ["CRITICAL", "HIGH", "MEDIUM", "LOW"],
+  "_severityNote": "CRITICAL = release-blocking outcomes (auth, payment, core connect creation). HIGH = visible to most users (marketing flows, navigation health). MEDIUM = secondary flows. LOW = edge cases. Severity drives B5 coverage-weighted score multiplier.",
+
+  "outcomes": [
+    {
+      "id": "connect.created.spreadsheet-to-gmail",
+      "name": "Create Connect — Google Sheets → Gmail draft",
+      "owner": "Connect Workflows",
+      "severity": "CRITICAL",
+      "verifier": "spreadsheetGmailVerifier",
+      "test": "testing.CreateConnectWorkflowTest",
+      "businessQuestion": "Can a user create and activate a working connect from a starter integration pair?"
+    },
+    {
+      "id": "homepage.navigation.health",
+      "name": "Homepage Navigation Health — appypieautomate.ai",
+      "owner": "Marketing Frontend",
+      "severity": "HIGH",
+      "verifier": "homepageNavigationVerifier",
+      "test": "testing.HomepageExhaustiveTest",
+      "businessQuestion": "Does the marketing homepage load and route visitors without broken links?"
+    }
+  ]
+}

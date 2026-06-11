@@ -219,7 +219,15 @@ public final class DashboardBuilder {
         .replace("{{AVG_SCORE}}", String.format("%.1f", trend.avgScore))
         .replace("{{JS_ERRORS_MAX_HEIGHT}}", jsProdErrors != null && jsProdErrors.size() > 10 ? "360px" : "none")
         .replace("{{CATEGORY_SUMMARY}}", "") // Optional summary space
+        .replace("{{OVERRIDE_BANNER}}", buildOverrideBannerHtml())
+        .replace("{{LEGACY_SCORE_RING}}", buildLegacyScoreRingHtml(score, scoreColor))
+        .replace("{{LEGACY_STATS_BLOCK}}", buildLegacyStatsBlockHtml(analytics, tests, jsErrorRoot, slowPages))
+        .replace("{{LEGACY_SLOW_PAGES_TABLE}}", buildLegacySlowPagesTableHtml(slowPages, slowPageRows))
+        .replace("{{LEGACY_JS_ERRORS_TABLE}}", buildLegacyJsErrorsTableHtml(jsProdErrors, jsErrorRows))
+        .replace("{{PLATFORM_HEALTH_PANEL}}", utils.dashboard.components.PlatformHealthComponent.render())
+        .replace("{{DATA_QUALITY_PANEL}}",    utils.dashboard.components.DataQualityComponent.render())
         .replace("{{TRIAGE_BOX}}", buildTriageSummaryHtml(analytics, status, readProductHealthFromSnapshot(), tests))
+        .replace("{{TREND_STATS_BLOCK}}", buildTrendStatsBlockHtml())
         .replace("{{EXECUTIVE_PANEL}}", buildExecutivePanelHtml(analytics, status, trendSnapshot, correlationSnapshot, orchSnapshot, govSnapshot))
         .replace("{{RELEASE_BLOCKERS}}", buildReleaseBlockersHtml(analytics, status, correlationSnapshot, orchSnapshot, trendSnapshot))
         .replace("{{SEMANTIC_PANEL}}", buildSemanticPanelHtml())
@@ -504,14 +512,29 @@ public final class DashboardBuilder {
     java.util.List<RecordingEntry> recordings = scanAllRecordings();
 
     StringBuilder sb = new StringBuilder();
-    sb.append("<div class='section'>");
-    sb.append("<div class='section-header'>");
+    // Section starts COLLAPSED — the recordings list is heavy (potentially dozens
+    // of cards) and most operators only need it when they're triaging a specific
+    // failure. Header is clickable; CSS + JS in buildVideoStyles/buildVideoScripts
+    // handle the show/hide and chevron-rotation. To open by default, replace
+    // 'collapsed' below with the empty string.
+    sb.append("<div class='section recordings-section collapsed' id='sec-recordings-card'>");
+    sb.append("<div class='section-header recordings-toggle' "
+            + "onclick='toggleRecordingsSection(this)' "
+            + "role='button' tabindex='0' "
+            + "aria-expanded='false' aria-controls='recordings-content' "
+            + "title='Click to expand/collapse recordings'>");
     sb.append(String.format(
-        "<div class='section-title'>▶ Recordings <span style='font-size:13px;font-weight:400;" +
-        "color:#64748b;margin-left:8px;'>%d video%s</span></div>",
+        "<div class='section-title'>"
+      + "<span class='recordings-chevron' aria-hidden='true'>▶</span> "
+      + "Recordings <span style='font-size:13px;font-weight:400;color:#64748b;margin-left:8px;'>"
+      + "%d video%s</span></div>",
         recordings.size(), recordings.size() == 1 ? "" : "s"));
-    sb.append("<div style='font-size:12px;color:#64748b;'>Test execution replay videos — persisted across runs</div>");
+    sb.append("<div style='font-size:12px;color:#64748b;'>"
+            + "Test execution replay videos — persisted across runs. Click header to expand.</div>");
     sb.append("</div>");
+
+    // Collapsible body — CSS toggles max-height/display based on .collapsed on parent.
+    sb.append("<div class='recordings-content' id='recordings-content'>");
 
     if (recordings.isEmpty()) {
       sb.append("""
@@ -547,6 +570,7 @@ public final class DashboardBuilder {
       sb.append("</div>"); // recordings-grid
     }
 
+    sb.append("</div>"); // recordings-content
     sb.append("</div>"); // section
     return sb.toString();
   }
@@ -605,6 +629,53 @@ public final class DashboardBuilder {
         .recordings-empty .empty-title { font-size:16px; font-weight:600; color:#64748b; margin-bottom:8px; }
         .recordings-empty code { background:#f1f5f9; padding:2px 6px; border-radius:4px;
                                  font-size:12px; color:#4f46e5; }
+        /* ── D1/D2 collapsible sections: open by default, click header to collapse ── */
+        .platform-health-toggle, .data-quality-toggle {
+            cursor:pointer; user-select:none; transition:background 0.15s ease;
+        }
+        .platform-health-toggle:hover, .data-quality-toggle:hover { background:#f8fafc; }
+        .platform-health-toggle:focus-visible,
+        .data-quality-toggle:focus-visible {
+            outline:2px solid #6366f1; outline-offset:2px; border-radius:6px;
+        }
+        .collapsible-chevron {
+            display:inline-block; transition:transform 0.25s ease;
+            font-size:11px; color:#64748b; margin-right:4px;
+        }
+        /* Chevron rotation: HTML serves ▶ (collapsed) by default; rotate +90deg
+           when expanded to point ▼ (down). Inverted from the prior expand-by-default
+           behaviour so the chevron text + CSS agree visually after the D1/D2 default
+           was switched to collapsed. */
+        .platform-health-section:not(.collapsed) .collapsible-chevron,
+        .data-quality-section:not(.collapsed) .collapsible-chevron {
+            transform:rotate(90deg);
+        }
+        .collapsible-content {
+            overflow:hidden;
+            transition:max-height 0.3s ease, opacity 0.2s ease;
+            max-height:5000px; opacity:1;
+        }
+        .platform-health-section.collapsed .collapsible-content,
+        .data-quality-section.collapsed .collapsible-content {
+            max-height:0; opacity:0; pointer-events:none;
+        }
+        /* ── Recordings section: collapsible toggle (collapsed by default) ── */
+        .recordings-toggle { cursor:pointer; user-select:none;
+                             transition:background 0.15s ease; }
+        .recordings-toggle:hover { background:#f8fafc; }
+        .recordings-toggle:focus-visible { outline:2px solid #6366f1; outline-offset:2px;
+                                            border-radius:6px; }
+        .recordings-chevron { display:inline-block; transition:transform 0.25s ease;
+                              font-size:11px; color:#64748b; margin-right:4px;
+                              transform-origin:center; }
+        .recordings-section:not(.collapsed) .recordings-chevron { transform:rotate(90deg); }
+        .recordings-content { overflow:hidden;
+                              transition:max-height 0.3s ease, opacity 0.2s ease, padding 0.2s ease;
+                              max-height:5000px; opacity:1; }
+        .recordings-section.collapsed .recordings-content {
+            max-height:0; opacity:0; padding-top:0; padding-bottom:0;
+            pointer-events:none;
+        }
         """;
   }
 
@@ -640,6 +711,47 @@ public final class DashboardBuilder {
             if (e.target.id === 'videoModalOverlay') closeVideoModal();
         }
         document.addEventListener('keydown', e => { if (e.key === 'Escape') closeVideoModal(); });
+
+        /* Recordings section collapse/expand toggle.
+         * Default state is .collapsed (set by server-rendered HTML). Click on header
+         * flips the .collapsed class on the parent .recordings-section, CSS animates
+         * the max-height transition and rotates the chevron 90deg. Keyboard support:
+         * Enter/Space on the focused header fires the same handler.
+         */
+        function toggleRecordingsSection(headerEl) {
+            const section = headerEl.closest('.recordings-section');
+            if (!section) return;
+            const willExpand = section.classList.contains('collapsed');
+            section.classList.toggle('collapsed');
+            headerEl.setAttribute('aria-expanded', String(willExpand));
+        }
+
+        /* D1/D2 collapsible sections — generalised toggle. Difference from the
+         * Recordings flavor: these sections default to OPEN (no .collapsed at
+         * server-render), and the chevron rotates the opposite direction.
+         * The closest('.section') walk works because both PlatformHealth and
+         * DataQuality components emit a parent .section element with their
+         * own *-section class. */
+        function toggleCollapsibleSection(headerEl, contentId) {
+            const section = headerEl.closest('.section');
+            if (!section) return;
+            const willCollapse = !section.classList.contains('collapsed');
+            section.classList.toggle('collapsed');
+            headerEl.setAttribute('aria-expanded', String(!willCollapse));
+        }
+
+        document.addEventListener('keydown', e => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            if (!e.target.classList) return;
+            if (e.target.classList.contains('recordings-toggle')) {
+                e.preventDefault();
+                toggleRecordingsSection(e.target);
+            } else if (e.target.classList.contains('platform-health-toggle')
+                    || e.target.classList.contains('data-quality-toggle')) {
+                e.preventDefault();
+                toggleCollapsibleSection(e.target);
+            }
+        });
         </script>
         """;
   }
@@ -1446,7 +1558,100 @@ public final class DashboardBuilder {
               escHtml(domain) + "<br><span style='font-weight:400;color:#475569;font-size:12px;'>"
               + escHtml(owner) + "</span>")
         + triageCell("ACTION",       escHtml(action))
-        + "</div></div>";
+        + "</div>"
+        + buildScoreDriversRow(headerColor)
+        + "</div>";
+  }
+
+  /**
+   * Renders the score-driver inline row beneath the 4 triage cells. Reads
+   * {@code scoreContributors} from {@code health_snapshot.json} and displays
+   * each bucket's applied penalty so the stakeholder sees WHY the score is
+   * what it is — not just that "N tests failed." Addresses the common
+   * misreading where a stakeholder sees "1 of 25 failed" and concludes the
+   * scoring model is too aggressive, when in reality the dominant contributor
+   * was N locator-fallback retries from a single failing iteration.
+   *
+   * <p>Returns "" when scoreContributors is missing or shows zero total — the
+   * row only appears when there's something to explain.</p>
+   */
+  @SuppressWarnings("unchecked")
+  private static String buildScoreDriversRow(String accentColor) {
+    try {
+      java.nio.file.Path p = java.nio.file.Paths.get("reports/trend/health_snapshot.json");
+      if (!java.nio.file.Files.exists(p)) return "";
+      JSONObject root = (JSONObject) new JSONParser().parse(java.nio.file.Files.readString(p));
+      JSONObject sc = (JSONObject) root.get("scoreContributors");
+      if (sc == null) return "";
+
+      double totalApplied = (sc.get("totalApplied") instanceof Number n) ? n.doubleValue() : 0.0;
+      if (totalApplied < 0.5) return "";   // nothing meaningful to display
+
+      // Collect each non-total contributor's applied penalty + item count.
+      // Per-bucket data attributes (data-bucket / data-bucket-pts /
+      // data-bucket-items) provide a machine-readable contract for
+      // reconciliation tests; the visible text is for humans and may be
+      // re-worded without breaking the contract.
+      //
+      // C4 forward-compat: when cluster normalization lands, each bucket will
+      // also emit data-bucket-clusters and data-bucket-raw-events for full
+      // raw→cluster→applied traceability. The items reconciliation locked in
+      // here is the first step toward that richer contract.
+      StringBuilder drivers = new StringBuilder();
+      java.util.List<String> ordered = new java.util.ArrayList<>(
+              java.util.Arrays.asList("testFailures", "jsErrors", "fallbacks", "slowPages", "warnings"));
+      boolean first = true;
+      int totalItems = 0;
+      for (String key : ordered) {
+        Object v = sc.get(key);
+        if (!(v instanceof JSONObject bucket)) continue;
+        double applied = (bucket.get("appliedTotal") instanceof Number an) ? an.doubleValue() : 0.0;
+        if (applied < 0.5) continue;
+        JSONArray items = (JSONArray) bucket.get("items");
+        int itemCount = items != null ? items.size() : 0;
+        totalItems += itemCount;
+        if (!first) drivers.append("  +  ");
+        first = false;
+        drivers.append("<span data-bucket='").append(escHtml(key))
+               .append("' data-bucket-pts='").append(formatPts(applied))
+               .append("' data-bucket-items='").append(itemCount).append("'>")
+               .append("<strong>").append(itemCount).append("</strong>&nbsp;")
+               .append(escHtml(humanLabel(key)))
+               .append("&nbsp;<span style='color:#94a3b8;'>(")
+               .append(formatPts(applied)).append(" pts)</span>")
+               .append("</span>");
+      }
+      if (first) return "";   // no non-total contributors
+
+      return "<div data-component='score-drivers'"
+           + " data-penalty-total='" + formatPts(totalApplied) + "'"
+           + " data-total-items='" + totalItems + "'"
+           + " style='margin-top:14px;padding:10px 14px;background:rgba(0,0,0,0.04);"
+           + "border-radius:8px;font-size:12px;color:#1e293b;'>"
+           + "<span style='font-weight:700;color:" + accentColor
+           + ";text-transform:uppercase;letter-spacing:0.5px;font-size:10px;'>"
+           + "Score drivers</span> &nbsp;"
+           + drivers
+           + " &nbsp;<span style='color:#64748b;'>= " + formatPts(totalApplied) + " pts applied</span>"
+           + "</div>";
+    } catch (Exception e) {
+      return "";
+    }
+  }
+
+  private static String humanLabel(String contributorKey) {
+    return switch (contributorKey) {
+      case "testFailures" -> "test failure(s)";
+      case "jsErrors"     -> "JS error cluster(s)";
+      case "fallbacks"    -> "locator fallback(s)";
+      case "slowPages"    -> "slow page(s)";
+      case "warnings"     -> "warning(s)";
+      default              -> contributorKey;
+    };
+  }
+
+  private static String formatPts(double d) {
+    return d == (long) d ? String.format("%d", (long) d) : String.format("%.1f", d);
   }
 
   private static String triageCell(String label, String value) {
@@ -1457,6 +1662,276 @@ public final class DashboardBuilder {
         + "<div style='font-size:14px;font-weight:600;color:#1e293b;line-height:1.4;'>"
         + value + "</div>"
         + "</div>";
+  }
+
+  // ── Legacy section gating (off by default) ────────────────────────────────
+
+  /**
+   * Returns the legacy single-score ring HTML only when {@code -Ddashboard.showLegacy=true}.
+   * The ring renders the raw composite score that pre-dated Semantic Health and is
+   * retained for backward compatibility only — semantic layered scores (Product /
+   * Framework / Telemetry / Business) are the authoritative read.
+   */
+  private static String buildLegacyScoreRingHtml(int score, String scoreColor) {
+    if (!Boolean.parseBoolean(System.getProperty("dashboard.showLegacy", "false"))) {
+      return "";
+    }
+    return "<div class='score-ring legacy-score' title='Legacy composite score — see Semantic Health for authoritative scores'>"
+         + "<div class='score-ring-label' style='color:#94a3b8;font-size:9px;'>Legacy Composite</div>"
+         + "<div style='opacity:0.55;'>"
+         + "<span class='score-ring-value' style='color:" + scoreColor + ";font-size:22px;'>" + score + "</span>"
+         + "<span class='score-ring-max' style='font-size:11px;'>/100</span></div>"
+         + "<div style='font-size:9px;color:#cbd5e1;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px;'>deprecated</div>"
+         + "</div>";
+  }
+
+  /**
+   * Returns the legacy raw-count stats block HTML only when {@code -Ddashboard.showLegacy=true}.
+   * Pre-Semantic-Health raw counts (failed tests, raw JS errors, etc.) are retained
+   * for forensic access but hidden from the default dashboard view to reduce
+   * stakeholder confusion about which scoring layer is authoritative.
+   */
+  @SuppressWarnings("unchecked")
+  private static String buildLegacyStatsBlockHtml(JSONObject analytics, JSONArray tests,
+                                                   JSONObject jsErrorRoot, JSONArray slowPages) {
+    if (!Boolean.parseBoolean(System.getProperty("dashboard.showLegacy", "false"))) {
+      return "";
+    }
+    int failed = getInt(analytics, "failedCount", tests != null ? getFailedCount(tests) : 0);
+    int jsErr  = prodCount(jsErrorRoot);
+    int slow   = slowPages != null ? slowPages.size() : 0;
+    int healthy = getInt(analytics, "healthyCount", 0);
+    return "<details class='legacy-section' "
+         + "style='border:1px dashed #e2e8f0;border-radius:8px;background:#fafbfc;margin-bottom:24px;'>"
+         + "<summary style='cursor:pointer;padding:12px 16px;font-size:13px;color:#64748b;font-weight:600;'>"
+         + "<span style='display:inline-block;padding:2px 8px;background:#fee2e2;color:#991b1b;"
+         + "border-radius:4px;font-size:10px;letter-spacing:0.4px;margin-right:8px;'>DEPRECATED</span>"
+         + "Legacy raw-count stats"
+         + "<span style='font-weight:400;color:#94a3b8;margin-left:8px;'>"
+         + "— see Semantic Health for clustered, domain-tagged metrics</span>"
+         + "</summary>"
+         + "<div style='padding:0 16px 16px;'>"
+         + "<div class='stats-grid'>"
+         + "<div class='stat-card danger'><div class='stat-label'>Failed Tests</div><div class='stat-value'>" + failed + "</div></div>"
+         + "<div class='stat-card warning'><div class='stat-label'>JS Errors (raw)</div><div class='stat-value'>" + jsErr + "</div></div>"
+         + "<div class='stat-card info'><div class='stat-label'>Slow Pages (raw)</div><div class='stat-value'>" + slow + "</div></div>"
+         + "<div class='stat-card success'><div class='stat-label'>Passed Tests</div><div class='stat-value'>" + healthy + "</div></div>"
+         + "</div></div></details>";
+  }
+
+  /**
+   * Returns the legacy raw "Slow Pages" table only when {@code -Ddashboard.showLegacy=true}.
+   * Superseded by Semantic Health / Telemetry Confidence — kept for forensic drill-down
+   * but hidden from the default view to avoid duplicate-source-of-truth confusion.
+   */
+  private static String buildLegacySlowPagesTableHtml(JSONArray slowPages, String slowPageRows) {
+    if (!Boolean.parseBoolean(System.getProperty("dashboard.showLegacy", "false"))) {
+      return "";
+    }
+    int count = slowPages != null ? slowPages.size() : 0;
+    return "<div class='section'>"
+         + "<details class='legacy-section' "
+         + "style='border:1px dashed #e2e8f0;border-radius:8px;background:#fafbfc;'>"
+         + "<summary style='cursor:pointer;padding:12px 16px;font-size:13px;color:#64748b;font-weight:600;'>"
+         + "<span style='display:inline-block;padding:2px 8px;background:#fee2e2;color:#991b1b;"
+         + "border-radius:4px;font-size:10px;letter-spacing:0.4px;margin-right:8px;'>DEPRECATED</span>"
+         + "Legacy: raw Slow Pages table <span class='count'>" + count + "</span>"
+         + "<span style='font-weight:400;color:#94a3b8;margin-left:8px;'>"
+         + "— now surfaced under Semantic Health / Telemetry Confidence</span>"
+         + "</summary>"
+         + "<div style='padding:0 16px 16px;'>"
+         + "<table id='slowPagesTable'><thead>"
+         + "<tr><th>Page</th><th>Load Time</th><th>Severity</th></tr></thead>"
+         + "<tbody>" + slowPageRows + "</tbody></table>"
+         + "</div></details></div>";
+  }
+
+  /**
+   * Returns the legacy raw JS Errors table only when {@code -Ddashboard.showLegacy=true}.
+   * Same rationale as the Slow Pages legacy table — superseded by Semantic Health
+   * Error Clusters (clustered, domain-tagged).
+   */
+  private static String buildLegacyJsErrorsTableHtml(JSONArray jsProdErrors, String jsErrorRows) {
+    if (!Boolean.parseBoolean(System.getProperty("dashboard.showLegacy", "false"))) {
+      return "";
+    }
+    int count = jsProdErrors != null ? jsProdErrors.size() : 0;
+    String maxHeight = count > 10 ? "360px" : "none";
+    return "<div class='section'>"
+         + "<details class='legacy-section' "
+         + "style='border:1px dashed #e2e8f0;border-radius:8px;background:#fafbfc;'>"
+         + "<summary style='cursor:pointer;padding:12px 16px;font-size:13px;color:#64748b;font-weight:600;'>"
+         + "<span style='display:inline-block;padding:2px 8px;background:#fee2e2;color:#991b1b;"
+         + "border-radius:4px;font-size:10px;letter-spacing:0.4px;margin-right:8px;'>DEPRECATED</span>"
+         + "Legacy: raw JS Errors table <span class='count'>" + count + "</span>"
+         + "<span style='font-weight:400;color:#94a3b8;margin-left:8px;'>"
+         + "— now clustered under Semantic Health / Error Clusters</span>"
+         + "</summary>"
+         + "<div style='padding:0 16px 16px;'>"
+         + "<div style='max-height:" + maxHeight + ";overflow-y:auto;'>"
+         + "<table id='jsErrorsTable'><thead>"
+         + "<tr><th style='width:150px;'>Source</th><th style='width:100px;'>Severity</th><th>Error Message</th></tr>"
+         + "</thead><tbody>" + jsErrorRows + "</tbody></table>"
+         + "</div></div></details></div>";
+  }
+
+  // ── Phase D3 — Trend Stats / Outlier Badge ────────────────────────────────
+
+  /**
+   * Reads the {@code trendStats} block (written by C2) and renders a small
+   * "vs recent" mini-card. When {@code trendStats.outlier} is true, the
+   * card is promoted to a prominent badge with bg color.
+   *
+   * <p>The rendered HTML carries machine-readable {@code data-*}
+   * attributes ({@code data-component='trend-stats'}, {@code data-z-score},
+   * {@code data-outlier}, {@code data-sample-size}, {@code data-mean},
+   * {@code data-stddev}) so reconciliation tests can assert on values
+   * without scraping human-facing text. Same contract pattern as the
+   * score-drivers row.</p>
+   *
+   * <p>Returns "" when:</p>
+   * <ul>
+   *   <li>No snapshot file</li>
+   *   <li>No {@code trendStats} block</li>
+   *   <li>{@code sampleSize} below the calculator's minimum (no outlier
+   *       judgement is yet meaningful)</li>
+   * </ul>
+   */
+  @SuppressWarnings("unchecked")
+  private static String buildTrendStatsBlockHtml() {
+    try {
+      java.nio.file.Path p = java.nio.file.Paths.get("reports/trend/health_snapshot.json");
+      if (!java.nio.file.Files.exists(p)) return "";
+      JSONObject root = (JSONObject) new JSONParser().parse(
+              java.nio.file.Files.readString(p));
+      JSONObject ts = (JSONObject) root.get("trendStats");
+      if (ts == null) return "";
+
+      int sampleSize = (ts.get("sampleSize") instanceof Number sn) ? sn.intValue() : 0;
+      // Below the calculator's minimum sample size, "outlier" is meaningless.
+      // C2 chose 5 as MIN_SAMPLE_FOR_OUTLIER; mirror that here as a constant
+      // rather than re-read it to keep the dashboard a pure consumer.
+      final int MIN_SAMPLE = 5;
+      if (sampleSize < MIN_SAMPLE) return "";
+
+      double zScore = (ts.get("currentZScore") instanceof Number zn) ? zn.doubleValue() : 0.0;
+      double mean   = (ts.get("mean")          instanceof Number mn) ? mn.doubleValue() : 0.0;
+      double stdDev = (ts.get("stdDev")        instanceof Number dn) ? dn.doubleValue() : 0.0;
+      double threshold = (ts.get("outlierThreshold") instanceof Number tn) ? tn.doubleValue() : 2.0;
+      boolean outlier = Boolean.TRUE.equals(ts.get("outlier"));
+
+      String bg, border, color, badge;
+      if (outlier) {
+        bg     = "#fff7ed";
+        border = "#ea580c";
+        color  = "#7c2d12";
+        badge  = "⚠ Outlier — this run is " + formatPts(Math.abs(zScore))
+              + "σ from the recent mean (threshold ±" + formatPts(threshold) + "σ)";
+      } else {
+        bg     = "#f8fafc";
+        border = "#cbd5e1";
+        color  = "#475569";
+        badge  = "Within normal range — current z-score " + formatPts(zScore)
+              + "σ (threshold ±" + formatPts(threshold) + "σ)";
+      }
+
+      // Compact one-line summary with structured attributes for tests.
+      return "<div data-component='trend-stats'"
+           + " data-sample-size='" + sampleSize + "'"
+           + " data-z-score='" + formatPts(zScore) + "'"
+           + " data-mean='" + formatPts(mean) + "'"
+           + " data-stddev='" + formatPts(stdDev) + "'"
+           + " data-outlier='" + outlier + "'"
+           + " style='background:" + bg + ";border:1px solid " + border
+           + ";border-left:5px solid " + border + ";border-radius:8px;"
+           + "padding:10px 14px;margin-bottom:14px;color:" + color + ";"
+           + "font-size:12px;display:flex;flex-wrap:wrap;align-items:center;gap:18px;'>"
+           + "<span style='font-weight:700;'>" + escHtml(badge) + "</span>"
+           + "<span style='color:#64748b;'>vs recent " + sampleSize + " runs: "
+           + "mean " + formatPts(mean) + ", σ " + formatPts(stdDev) + "</span>"
+           + "</div>";
+    } catch (Exception e) {
+      LOG.debug("[DashboardBuilder] Trend stats block render failed: {}", e.getMessage());
+      return "";
+    }
+  }
+
+  // ── Phase E3 — Override Banner ────────────────────────────────────────────
+
+  /**
+   * Reads {@code audit.overrides} from {@code health_snapshot.json} and renders
+   * a red banner at the top of the dashboard when any gate-bypass flag is active.
+   * Empty string when no overrides are active — the banner takes no space on
+   * clean runs.
+   *
+   * <p>Display rules:</p>
+   * <ul>
+   *   <li>0 overrides → return ""</li>
+   *   <li>Any "bypass"-kind override → red banner, "RELEASE GATE OVERRIDES ACTIVE"</li>
+   *   <li>Only "intent-shift" (e.g. blocking mode) → blue banner, "Build gate is BLOCKING"</li>
+   * </ul>
+   */
+  @SuppressWarnings("unchecked")
+  private static String buildOverrideBannerHtml() {
+    try {
+      java.nio.file.Path p = java.nio.file.Paths.get("reports/trend/health_snapshot.json");
+      if (!java.nio.file.Files.exists(p)) return "";
+      JSONObject root = (JSONObject) new JSONParser().parse(
+              java.nio.file.Files.readString(p));
+      JSONObject audit = (JSONObject) root.get("audit");
+      if (audit == null) return "";
+      JSONArray overrides = (JSONArray) audit.get("overrides");
+      if (overrides == null || overrides.isEmpty()) return "";
+
+      boolean hasBypass    = false;
+      boolean hasIntentShift = false;
+      StringBuilder rows = new StringBuilder();
+      for (Object o : overrides) {
+        if (!(o instanceof JSONObject e)) continue;
+        String prop  = getString(e, "property",     "");
+        String value = getString(e, "currentValue", "");
+        String eff   = getString(e, "effect",       "");
+        String kind  = getString(e, "kind",         "bypass");
+        if ("bypass".equals(kind)) hasBypass = true;
+        else                       hasIntentShift = true;
+        rows.append("<div style='display:flex;gap:14px;align-items:flex-start;"
+                  + "padding:6px 0;border-top:1px solid rgba(0,0,0,0.06);'>")
+            .append("<code style='font-size:11px;font-weight:700;color:inherit;"
+                  + "background:rgba(255,255,255,0.5);padding:2px 8px;border-radius:4px;"
+                  + "white-space:nowrap;'>")
+            .append("-D").append(escHtml(prop)).append("=").append(escHtml(value))
+            .append("</code>")
+            .append("<span style='font-size:12px;line-height:1.5;'>")
+            .append(escHtml(eff)).append("</span>")
+            .append("</div>");
+      }
+
+      String bg, border, color, headline;
+      if (hasBypass) {
+        bg       = "#fef2f2";   // red bg
+        border   = "#dc2626";
+        color    = "#7f1d1d";
+        headline = "⚠ Release-gate overrides ACTIVE — this run is not fully gate-protected";
+      } else if (hasIntentShift) {
+        bg       = "#eff6ff";   // blue bg (informational, not warning)
+        border   = "#2563eb";
+        color    = "#1e3a8a";
+        headline = "ℹ Build gate is in BLOCKING mode — failures will fail the build";
+      } else {
+        return "";   // unreachable defensive
+      }
+
+      return "<div style='background:" + bg + ";border:2px solid " + border
+           + ";border-left:6px solid " + border + ";border-radius:10px;padding:14px 20px;"
+           + "margin-bottom:18px;color:" + color + ";'>"
+           + "<div style='font-size:13px;font-weight:800;letter-spacing:0.3px;margin-bottom:6px;"
+           + "text-transform:uppercase;'>" + headline + "</div>"
+           + rows
+           + "</div>";
+    } catch (Exception e) {
+      LOG.debug("[DashboardBuilder] Override banner render failed: {}", e.getMessage());
+      return "";
+    }
   }
 
   /** Backward-compat overload — no product-health context available. */
@@ -1952,17 +2427,7 @@ public final class DashboardBuilder {
               </a>
             </div>
             <span class="status-badge {{STATUS_BADGE_CLASS}}">{{STATUS}}</span>
-            <!--
-              Legacy single-score ring — kept visible but visually de-emphasised.
-              The semantic panel below is the authoritative source of truth for run health.
-              This composite score mixes Product / Framework / Telemetry signals and is
-              retained for backwards compatibility only.
-            -->
-            <div class="score-ring legacy-score" title="Legacy composite score — see Semantic Health panel below for authoritative scores">
-              <div class="score-ring-label" style="color:#94a3b8;font-size:9px;">Legacy Composite</div>
-              <div style="opacity:0.55;"><span class="score-ring-value" style="color:{{SCORE_COLOR}};font-size:22px;">{{SCORE}}</span><span class="score-ring-max" style="font-size:11px;">/100</span></div>
-              <div style="font-size:9px;color:#cbd5e1;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px;">deprecated</div>
-            </div>
+            {{LEGACY_SCORE_RING}}
           </div>
         </div>
 
@@ -1980,7 +2445,11 @@ public final class DashboardBuilder {
           <button class="sev-chip chip-gov"             onclick="setSevFilter('gov',      this)">Governance alerts</button>
         </div>
 
+        {{OVERRIDE_BANNER}}
+
         {{TRIAGE_BOX}}
+
+        {{TREND_STATS_BLOCK}}
 
         {{EXECUTIVE_PANEL}}
 
@@ -1988,42 +2457,15 @@ public final class DashboardBuilder {
 
         {{SEMANTIC_PANEL}}
 
+        {{DATA_QUALITY_PANEL}}
+
+        {{PLATFORM_HEALTH_PANEL}}
+
         {{CONFIDENCE_INDICATOR}}
 
         {{DELTA_PANEL}}
 
-        <!--
-          Legacy raw-count stat cards.  Replaced by Semantic Health (layered scores,
-          error clusters, phase reliability).  Hidden behind a collapsed details to
-          remove from executive summary while preserving forensic access.
-        -->
-        <details class="legacy-section" style="border:1px dashed #e2e8f0;border-radius:8px;background:#fafbfc;margin-bottom:24px;">
-          <summary style="cursor:pointer;padding:12px 16px;font-size:13px;color:#64748b;font-weight:600;">
-            <span style="display:inline-block;padding:2px 8px;background:#fee2e2;color:#991b1b;border-radius:4px;font-size:10px;letter-spacing:0.4px;margin-right:8px;">DEPRECATED</span>
-            Legacy raw-count stats
-            <span style="font-weight:400;color:#94a3b8;margin-left:8px;">— see Semantic Health for clustered, domain-tagged metrics</span>
-          </summary>
-          <div style="padding:0 16px 16px;">
-            <div class="stats-grid">
-              <div class="stat-card danger">
-                <div class="stat-label">Failed Tests</div>
-                <div class="stat-value">{{FAILED_COUNT}}</div>
-              </div>
-              <div class="stat-card warning">
-                <div class="stat-label">JS Errors (raw)</div>
-                <div class="stat-value">{{JS_ERROR_COUNT}}</div>
-              </div>
-              <div class="stat-card info">
-                <div class="stat-label">Slow Pages (raw)</div>
-                <div class="stat-value">{{SLOW_PAGES_COUNT}}</div>
-              </div>
-              <div class="stat-card success">
-                <div class="stat-label">Passed Tests</div>
-                <div class="stat-value">{{HEALTHY_COUNT}}</div>
-              </div>
-            </div>
-          </div>
-        </details>
+        {{LEGACY_STATS_BLOCK}}
 
         {{ORCHESTRATION_PANEL}}
 
@@ -2101,71 +2543,10 @@ public final class DashboardBuilder {
           </div>
         </div>
 
-        <!-- Slow Pages -->
-        <div class="section">
-          <!--
-            Legacy raw "Slow Pages" table. Superseded by the Semantic Health panel,
-            which routes UNKNOWN-timing entries to telemetry confidence and only the
-            real slow pages (>=5 s) to the layered Product Health score.
-            Kept collapsed for backwards-compatible drill-down.
-          -->
-          <details class="legacy-section" style="border:1px dashed #e2e8f0;border-radius:8px;background:#fafbfc;">
-            <summary style="cursor:pointer;padding:12px 16px;font-size:13px;color:#64748b;font-weight:600;">
-              <span style="display:inline-block;padding:2px 8px;background:#fee2e2;color:#991b1b;border-radius:4px;font-size:10px;letter-spacing:0.4px;margin-right:8px;">DEPRECATED</span>
-              Legacy: raw Slow Pages table <span class="count">{{SLOW_PAGES_COUNT}}</span>
-              <span style="font-weight:400;color:#94a3b8;margin-left:8px;">— now surfaced under Semantic Health / Telemetry Confidence</span>
-            </summary>
-            <div style="padding:0 16px 16px;">
-              <div class="filter-controls" style="margin-bottom:8px;">
-                <button class="filter-btn active" data-filter="all" data-table="slowPages">All</button>
-                <button class="filter-btn" data-filter="critical" data-table="slowPages">Critical</button>
-                <button class="filter-btn" data-filter="high" data-table="slowPages">High</button>
-                <button class="filter-btn" data-filter="medium" data-table="slowPages">Medium</button>
-              </div>
-              <table id="slowPagesTable">
-                <thead>
-                  <tr><th data-sort="text">Page <span class="sort-icon">↕</span></th><th data-sort="duration">Load Time <span class="sort-icon">↕</span></th><th data-sort="severity">Severity <span class="sort-icon">↕</span></th></tr>
-                </thead>
-                <tbody>
-        {{SLOW_PAGES_ROWS}}
-                </tbody>
-              </table>
-            </div>
-          </details>
-        </div>
-
-        <!--
-          Legacy raw JS Errors table.  The Semantic Health panel above replaces this
-          with clustered, domain-tagged error families (e.g. "zaraz x18 LOW
-          Observability" instead of 18 separate red entries).  Drill-down kept for
-          forensic access — collapsed by default.
-        -->
-        <div class="section">
-          <details class="legacy-section" style="border:1px dashed #e2e8f0;border-radius:8px;background:#fafbfc;">
-            <summary style="cursor:pointer;padding:12px 16px;font-size:13px;color:#64748b;font-weight:600;">
-              <span style="display:inline-block;padding:2px 8px;background:#fee2e2;color:#991b1b;border-radius:4px;font-size:10px;letter-spacing:0.4px;margin-right:8px;">DEPRECATED</span>
-              Legacy: raw JS Errors table <span class="count">{{JS_ERROR_COUNT}}</span>
-              <span style="font-weight:400;color:#94a3b8;margin-left:8px;">— now clustered under Semantic Health / Error Clusters</span>
-            </summary>
-            <div style="padding:0 16px 16px;">
-              <div class="filter-controls" style="margin-bottom:8px;">
-                <button class="filter-btn active" data-filter="all" data-table="jsErrors">All</button>
-                <button class="filter-btn" data-filter="critical" data-table="jsErrors">Critical</button>
-                <button class="filter-btn" data-filter="high" data-table="jsErrors">High</button>
-              </div>
-              <div style="max-height:{{JS_ERRORS_MAX_HEIGHT}};overflow-y:auto;">
-                <table id="jsErrorsTable">
-                  <thead>
-                    <tr><th style="width:150px;">Source</th><th style="width:100px;">Severity</th><th>Error Message</th></tr>
-                  </thead>
-                  <tbody>
-                    {{JS_ERRORS_ROWS}}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </details>
-        </div>
+        <!-- Legacy raw Slow Pages + JS Errors tables — gated behind
+             -Ddashboard.showLegacy=true (both blocks renderable for forensics). -->
+        {{LEGACY_SLOW_PAGES_TABLE}}
+        {{LEGACY_JS_ERRORS_TABLE}}
 
         <div data-section id="sec-appendix"></div>
         <!-- Recordings section -->

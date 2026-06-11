@@ -8,9 +8,12 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.util.List;
 
+import utils.config.UrlRegistry;
+
 /**
  * Page Object for the App Directory / Integrations page.
- * URL: https://www.appypieautomate.ai/integrate/app-directory
+ * URL: {@code UrlRegistry.MARKETING_BASE + "/integrate/app-directory"}
+ * (formerly hardcoded to appypieautomate.ai; rebrand-migrated to flozic.ai).
  */
 public class AppDirectoryPage {
 
@@ -39,7 +42,7 @@ public class AppDirectoryPage {
     // --------------------------------------------------
 
     public void navigateTo() {
-        driver.get("https://www.appypieautomate.ai/integrate/app-directory");
+        driver.get(UrlRegistry.MARKETING_BASE + "/integrate/app-directory");
         waitUntilLoaded();
     }
 

@@ -11,6 +11,7 @@ import org.testng.annotations.Test;
 import pages.AppyPieAutomatePage;
 import pages.ConnectTopNavigation;
 import utils.ConsoleLogFilter;
+import utils.config.UrlRegistry;
 import utils.health.HealthTracker;
 
 import java.util.List;
@@ -157,7 +158,7 @@ public class AppyPieNavigationTest extends BaseTest {
 
         // Navigate to home first — use the configured base URL so flozic.ai or
         // any rebranded host is honoured rather than hard-coding the legacy domain.
-        driver.get("https://www.appypieautomate.ai");
+        driver.get(UrlRegistry.MARKETING_BASE);
 
         // Capture the original window so we can assert we returned to it (not just
         // that we landed on something that looks like the main site).  The legacy
@@ -194,7 +195,7 @@ public class AppyPieNavigationTest extends BaseTest {
     @Test(groups = { "sanity" }, priority = 7)
     public void validateWordPressCategoryPage() {
         LOG.info("Testing WordPress category page (fast path)");
-        driver.get("https://www.appypieautomate.ai/integrate/apps/categories/wordpress");
+        driver.get(UrlRegistry.MARKETING_BASE + "/integrate/apps/categories/wordpress");
 
         AppyPieAutomatePage page = new AppyPieAutomatePage(driver);
         page.waitUntilLoaded();

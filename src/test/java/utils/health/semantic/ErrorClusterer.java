@@ -29,7 +29,12 @@ public final class ErrorClusterer {
             String ctx = evt.getOrDefault("context", "");
             String msg = evt.getOrDefault("message", "");
             String fp  = fingerprint(ctx, msg);
-            buckets.computeIfAbsent(fp, k -> new Acc(ctx, msg)).count++;
+            Acc acc = buckets.computeIfAbsent(fp, k -> new Acc(ctx, msg));
+            acc.count++;
+            // Phase A.6.2 — track every distinct context this fingerprint occurred in.
+            // This gives the amplification classifier a signal orthogonal to count:
+            // count tells you HOW MANY events, distinctContextCount tells you HOW SPREAD.
+            if (ctx != null && !ctx.isBlank()) acc.contexts.add(ctx);
         }
 
         // classify once per cluster (not once per raw event — that was the old penalty bug)
@@ -44,7 +49,8 @@ public final class ErrorClusterer {
                             c.severity,
                             acc.sampleMessage,
                             acc.sampleContext,
-                            c.reason);
+                            c.reason,
+                            acc.contexts.size());
                 })
                 .sorted(Comparator
                         .comparingInt((ErrorCluster ec) -> -ec.severity.ordinal())
@@ -86,6 +92,11 @@ public final class ErrorClusterer {
         final String sampleContext;
         final String sampleMessage;
         int count;
+        /** Phase A.6.2 — every distinct context this fingerprint was observed in,
+         *  insertion-ordered so the first-seen sample stays first. Used by the
+         *  amplification classifier to distinguish single-context repeats (likely
+         *  EMBEDDED_REPEAT or RETRY_STORM) from multi-context spread (NORMAL_REPEAT). */
+        final java.util.LinkedHashSet<String> contexts = new java.util.LinkedHashSet<>();
         Acc(String ctx, String msg) {
             this.sampleContext = ctx;
             this.sampleMessage = msg;
